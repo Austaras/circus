@@ -1,2 +1,4 @@
 [workspace]
 members = ["crates/dtoa", "crates/stackful"]
+
+resolver = "2"
