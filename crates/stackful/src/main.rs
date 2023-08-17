@@ -27,6 +27,7 @@ struct Thread {
     state: State,
 }
 
+#[cfg(target_arch = "x86_64")]
 #[derive(Debug, Default)]
 #[repr(C)]
 struct ThreadContext {
@@ -39,11 +40,31 @@ struct ThreadContext {
     rbp: u64,
 }
 
+#[cfg(target_arch = "aarch64")]
+#[derive(Debug, Default)]
+#[repr(C)]
+struct ThreadContext {
+    r4: u64,
+    r5: u64,
+    r6: u64,
+    r7: u64,
+    r8: u64,
+    r9: u64,
+    r10: u64,
+    /// frame pointer
+    r11: u64,
+    /// stack pointer
+    r13: u64,
+}
+
 impl Thread {
     fn new(id: usize) -> Self {
         Thread {
             id,
-            stack: vec![0_u8; DEFAULT_STACK_SIZE].into_boxed_slice().try_into().unwrap(),
+            stack: vec![0_u8; DEFAULT_STACK_SIZE]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
             ctx: ThreadContext::default(),
             state: State::Available,
         }
@@ -54,7 +75,10 @@ impl Runtime {
     pub fn new() -> Self {
         let base_thread = Thread {
             id: 0,
-            stack: vec![0_u8; DEFAULT_STACK_SIZE].into_boxed_slice().try_into().unwrap(),
+            stack: vec![0_u8; DEFAULT_STACK_SIZE]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
             ctx: ThreadContext::default(),
             state: State::Running,
         };
@@ -113,7 +137,7 @@ impl Runtime {
             let new: *const ThreadContext = &self.threads[pos].ctx;
             switch(old, new);
         }
-        self.threads.len() > 0
+        self.threads.is_empty()
     }
 
     pub fn spawn(&mut self, f: fn()) {
@@ -125,13 +149,20 @@ impl Runtime {
 
         let size = DEFAULT_STACK_SIZE;
         unsafe {
-            let s_ptr = available.stack.as_mut_ptr().offset(size as isize);
+            let s_ptr = available.stack.as_mut_ptr().add(size);
             // make sure stack bottom 16 byte aligned
             let s_ptr = (s_ptr as usize & !15) as *mut u8;
             std::ptr::write(s_ptr.offset(-16) as *mut u64, guard as u64);
             std::ptr::write(s_ptr.offset(-24) as *mut u64, skip as u64);
             std::ptr::write(s_ptr.offset(-32) as *mut u64, f as u64);
-            available.ctx.rsp = s_ptr.offset(-32) as u64;
+            #[cfg(target_arch = "x86_64")]
+            {
+                available.ctx.rsp = s_ptr.offset(-32) as u64;
+            }
+            #[cfg(target_arch = "aarch64")]
+            {
+                available.ctx.r13 = s_ptr.offset(-32) as u64;
+            }
         }
         available.state = State::Ready;
     }
@@ -153,6 +184,7 @@ pub fn yield_thread() {
 
 #[naked]
 unsafe extern "C" fn switch(old: *mut ThreadContext, new: *const ThreadContext) {
+    #[cfg(target_arch = "x86_64")]
     asm!(
         "mov [rdi + 0x00], rsp",
         "mov [rdi + 0x08], r15",
@@ -171,6 +203,8 @@ unsafe extern "C" fn switch(old: *mut ThreadContext, new: *const ThreadContext) 
         "ret",
         options(noreturn)
     );
+    #[cfg(target_arch = "aarch64")]
+    asm!("ret", options(noreturn))
 }
 pub fn main() {
     let mut runtime = Runtime::new();
