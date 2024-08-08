@@ -231,7 +231,31 @@ impl<T: Eq + Ord> Node<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::binary_search_tree::BinarySearchTree;
+    use super::{BinarySearchTree, Node};
+
+    impl<T: Eq + Ord> BinarySearchTree<T> {
+        fn check(&self) {
+            if let Some(node) = &self.node {
+                node.check()
+            }
+        }
+    }
+
+    impl<T: Eq + Ord> Node<T> {
+        fn check(&self) {
+            if let Some(left) = &self.left {
+                assert!(left.data < self.data);
+
+                left.check();
+            }
+
+            if let Some(right) = &self.right {
+                assert!(right.data > self.data);
+
+                right.check();
+            }
+        }
+    }
 
     #[test]
     fn basic() {
@@ -240,6 +264,8 @@ mod tests {
         tree.insert(3);
         tree.insert(5);
         tree.insert(7);
+
+        tree.check();
 
         assert!(tree.search(&5));
         assert!(tree.search(&7));
@@ -251,8 +277,10 @@ mod tests {
         tree.insert(5);
         tree.insert(3);
         tree.insert(7);
+        tree.check();
 
         tree.delete(&3);
+        tree.check();
 
         assert!(!tree.search(&3));
         assert!(tree.search(&7));
@@ -265,8 +293,10 @@ mod tests {
         tree.insert(7);
         tree.insert(6);
         tree.insert(9);
+        tree.check();
 
         tree.delete(&5);
+        tree.check();
 
         assert!(!tree.search(&5));
         assert!(tree.search(&6));
@@ -278,8 +308,10 @@ mod tests {
         tree.insert(5);
         tree.insert(3);
         tree.insert(7);
+        tree.check();
 
         tree.delete(&5);
+        tree.check();
 
         assert!(!tree.search(&5));
         assert!(tree.search(&7));
@@ -297,8 +329,10 @@ mod tests {
         tree.insert(10);
         tree.insert(9);
         tree.insert(12);
+        tree.check();
 
         tree.delete(&11);
+        tree.check();
 
         assert!(!tree.search(&11));
         assert!(tree.search(&9));
