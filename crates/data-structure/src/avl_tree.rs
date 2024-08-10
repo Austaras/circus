@@ -5,7 +5,7 @@ use std::{
 };
 
 pub struct AVLTree<T> {
-    node: Option<Node<T>>,
+    node: Option<Box<Node<T>>>,
 }
 
 impl<T> AVLTree<T> {
@@ -31,25 +31,15 @@ impl<T: Display> Display for AVLTree<T> {
 impl<T: Eq + Ord> AVLTree<T> {
     pub fn insert(&mut self, data: T) -> bool {
         if let Some(node) = &mut self.node {
-            node.insert(data)
+            node.insert(data).is_some()
         } else {
-            self.node = Some(Node::new(data));
+            self.node = Some(Box::new(Node::new(data)));
             true
         }
     }
 
-    pub fn delete(&mut self, data: &T) -> bool {
-        if let Some(node) = &mut self.node {
-            match node.delete(data) {
-                Some(r) => r,
-                None => {
-                    self.node = None;
-                    true
-                }
-            }
-        } else {
-            false
-        }
+    pub fn delete(&mut self, data: &T) -> Option<T> {
+        Node::delete(&mut self.node, data)
     }
 
     pub fn search(&self, data: &T) -> bool {
@@ -217,165 +207,104 @@ impl<T: Eq + Ord> Node<T> {
         self.balance = 0;
     }
 
-    fn insert(&mut self, data: T) -> bool {
-        let mut curr = self as *mut Node<T>;
-        let mut parent = vec![(curr, Left)];
-        let mut updated = false;
-
-        let mut balance = 0;
+    fn insert(&mut self, data: T) -> Option<(i8, bool)> {
         let mut dir = Left;
 
-        loop {
-            match unsafe { &mut *curr }.data.cmp(&data) {
-                Ordering::Equal => break,
-                Ordering::Greater => {
-                    let curr_ref = unsafe { &mut *curr };
-                    if let Some(left) = &mut curr_ref.left {
-                        curr = &mut **left as *mut Node<T>;
-                        parent.push((curr, Left));
-                    } else {
-                        curr_ref.left = Some(Box::new(Node::new(data)));
-                        balance = -1;
-                        dir = Left;
-                        updated = true;
-                        break;
-                    }
-                }
-                Ordering::Less => {
-                    let curr_ref = unsafe { &mut *curr };
-                    if let Some(right) = &mut curr_ref.right {
-                        curr = &mut **right as *mut Node<T>;
-                        parent.push((curr, Right));
-                    } else {
-                        curr_ref.right = Some(Box::new(Node::new(data)));
-                        balance = 1;
-                        dir = Right;
-                        updated = true;
-                        break;
-                    }
-                }
-            }
-        }
-
-        for (p, d) in parent.into_iter().rev() {
-            let p = unsafe { &mut *p };
-            p.balance += balance;
-
-            if p.balance.abs() == 2 {
-                let child_balance = match dir {
-                    Left => &p.left,
-                    Right => &p.right,
-                }
-                .as_ref()
-                .unwrap()
-                .balance;
-
-                match (child_balance, dir) {
-                    // left left
-                    (-1, Left) => p.rotate_right(),
-                    // right left
-                    (-1, Right) => p.rotate_right_left(),
-                    // left right
-                    (1, Left) => p.rotate_left_right(),
-                    // right right
-                    (1, Right) => p.rotate_left(),
-                    (0, _) => (),
-                    _ => unreachable!(),
-                };
-
-                break;
-            }
-
-            dir = d;
-
-            balance = match dir {
-                Left => -1,
-                Right => 1,
-            } * p.balance.abs();
-        }
-
-        updated
-    }
-
-    fn delete(&mut self, data: &T) -> Option<bool> {
-        match self.data.cmp(data) {
-            Ordering::Equal => match (&mut self.left, &mut self.right) {
-                (None, None) => None,
-                (None, Some(r)) => {
-                    mem::swap(&mut self.data, &mut r.data);
-                    mem::swap(&mut self.left, &mut r.left);
-
-                    let mut rr = None;
-                    mem::swap(&mut rr, &mut r.right);
-                    self.right = rr;
-
-                    Some(true)
-                }
-                (Some(l), None) => {
-                    mem::swap(&mut self.data, &mut l.data);
-                    mem::swap(&mut self.right, &mut l.right);
-
-                    let mut ll = None;
-                    mem::swap(&mut ll, &mut l.left);
-                    self.left = ll;
-
-                    Some(true)
-                }
-                (Some(l), Some(_)) => {
-                    let parent = &mut **l as *mut Node<T>;
-                    if let Some(r) = &mut l.right {
-                        let mut lr = &mut **r;
-                        let mut parent = parent;
-
-                        while lr.right.is_some() {
-                            parent = lr as *mut Node<T>;
-                            lr = lr.right.as_mut().unwrap();
-                        }
-
-                        mem::swap(&mut self.data, &mut lr.data);
-
-                        unsafe {
-                            mem::swap(&mut (*parent).right, &mut lr.left);
-                        }
-
-                        Some(true)
-                    } else {
-                        mem::swap(&mut self.data, &mut l.data);
-
-                        let mut ll = None;
-                        mem::swap(&mut ll, &mut l.left);
-                        self.left = ll;
-
-                        Some(true)
-                    }
-                }
-            },
+        let (child_balance, need_update) = match self.data.cmp(&data) {
+            Ordering::Equal => return None,
             Ordering::Greater => {
                 if let Some(left) = &mut self.left {
-                    match left.delete(data) {
-                        None => {
-                            self.left = None;
-                            Some(true)
-                        }
-                        Some(r) => Some(r),
-                    }
+                    left.insert(data)
                 } else {
-                    Some(false)
+                    self.left = Some(Box::new(Node::new(data)));
+                    Some((-1, true))
                 }
             }
             Ordering::Less => {
                 if let Some(right) = &mut self.right {
-                    match right.delete(data) {
-                        None => {
-                            self.right = None;
-                            Some(true)
-                        }
-                        Some(r) => Some(r),
-                    }
+                    dir = Right;
+                    right.insert(data)
                 } else {
-                    Some(false)
+                    self.right = Some(Box::new(Node::new(data)));
+                    dir = Right;
+                    Some((1, true))
                 }
             }
+        }?;
+
+        if need_update {
+            self.balance += match dir {
+                Left => -1,
+                Right => 1,
+            } * child_balance.abs();
+
+            if self.balance.abs() == 2 {
+                match (child_balance, dir) {
+                    // left left
+                    (-1, Left) => self.rotate_right(),
+                    // right left
+                    (-1, Right) => self.rotate_right_left(),
+                    // left right
+                    (1, Left) => self.rotate_left_right(),
+                    // right right
+                    (1, Right) => self.rotate_left(),
+                    (0, _) => (),
+                    _ => unreachable!(),
+                };
+
+                Some((self.balance, false))
+            } else {
+                Some((self.balance, true))
+            }
+        } else {
+            Some((self.balance, false))
+        }
+    }
+
+    fn delete(node: &mut Option<Box<Node<T>>>, data: &T) -> Option<T> {
+        if let Some(n) = node {
+            match n.data.cmp(data) {
+                Ordering::Greater => Node::delete(&mut n.left, data),
+                Ordering::Less => Node::delete(&mut n.right, data),
+                Ordering::Equal => {
+                    let curr = mem::replace(node, None).unwrap();
+
+                    match (curr.left, curr.right) {
+                        (None, None) => (),
+                        (Some(child), None) | (None, Some(child)) => *node = Some(child),
+                        (Some(mut l), Some(r)) => {
+                            if l.right.is_some() {
+                                let mut lr = &mut l.right;
+
+                                while lr.as_ref().unwrap().right.is_some() {
+                                    lr = &mut lr.as_mut().unwrap().right;
+                                }
+
+                                let lr = mem::replace(lr, None).unwrap();
+
+                                l.right = lr.left;
+
+                                let new_node = Node {
+                                    data: lr.data,
+                                    balance: curr.balance,
+                                    left: Some(l),
+                                    right: Some(r),
+                                };
+
+                                *node = Some(Box::new(new_node));
+                            } else {
+                                l.right = Some(r);
+
+                                *node = Some(l)
+                            }
+                        }
+                    }
+
+                    Some(curr.data)
+                }
+            }
+        } else {
+            None
         }
     }
 

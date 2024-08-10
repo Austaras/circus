@@ -5,7 +5,7 @@ use std::{
 };
 
 pub struct BinarySearchTree<T> {
-    node: Option<Node<T>>,
+    node: Option<Box<Node<T>>>,
 }
 
 impl<T> BinarySearchTree<T> {
@@ -33,23 +33,13 @@ impl<T: Eq + Ord> BinarySearchTree<T> {
         if let Some(node) = &mut self.node {
             node.insert(data)
         } else {
-            self.node = Some(Node::new(data));
+            self.node = Some(Box::new(Node::new(data)));
             true
         }
     }
 
-    pub fn delete(&mut self, data: &T) -> bool {
-        if let Some(node) = &mut self.node {
-            match node.delete(data) {
-                Some(r) => r,
-                None => {
-                    self.node = None;
-                    true
-                }
-            }
-        } else {
-            false
-        }
+    pub fn delete(&mut self, data: &T) -> Option<T> {
+        Node::delete(&mut self.node, data)
     }
 
     pub fn search(&self, data: &T) -> bool {
@@ -126,85 +116,49 @@ impl<T: Eq + Ord> Node<T> {
         }
     }
 
-    fn delete(&mut self, data: &T) -> Option<bool> {
-        match self.data.cmp(data) {
-            Ordering::Equal => match (&mut self.left, &mut self.right) {
-                (None, None) => None,
-                (None, Some(r)) => {
-                    mem::swap(&mut self.data, &mut r.data);
-                    mem::swap(&mut self.left, &mut r.left);
+    fn delete(node: &mut Option<Box<Node<T>>>, data: &T) -> Option<T> {
+        if let Some(n) = node {
+            match n.data.cmp(data) {
+                Ordering::Greater => Node::delete(&mut n.left, data),
+                Ordering::Less => Node::delete(&mut n.right, data),
+                Ordering::Equal => {
+                    let curr = mem::replace(node, None).unwrap();
 
-                    let mut rr = None;
-                    mem::swap(&mut rr, &mut r.right);
-                    self.right = rr;
+                    match (curr.left, curr.right) {
+                        (None, None) => (),
+                        (Some(child), None) | (None, Some(child)) => *node = Some(child),
+                        (Some(mut l), Some(r)) => {
+                            if l.right.is_some() {
+                                let mut lr = &mut l.right;
 
-                    Some(true)
-                }
-                (Some(l), None) => {
-                    mem::swap(&mut self.data, &mut l.data);
-                    mem::swap(&mut self.right, &mut l.right);
+                                while lr.as_ref().unwrap().right.is_some() {
+                                    lr = &mut lr.as_mut().unwrap().right;
+                                }
 
-                    let mut ll = None;
-                    mem::swap(&mut ll, &mut l.left);
-                    self.left = ll;
+                                let lr = mem::replace(lr, None).unwrap();
 
-                    Some(true)
-                }
-                (Some(l), Some(_)) => {
-                    let parent = &mut **l as *mut Node<T>;
-                    if let Some(r) = &mut l.right {
-                        let mut lr = &mut **r;
-                        let mut parent = parent;
+                                l.right = lr.left;
 
-                        while lr.right.is_some() {
-                            parent = lr as *mut Node<T>;
-                            lr = lr.right.as_mut().unwrap();
+                                let new_node = Node {
+                                    data: lr.data,
+                                    left: Some(l),
+                                    right: Some(r),
+                                };
+
+                                *node = Some(Box::new(new_node));
+                            } else {
+                                l.right = Some(r);
+
+                                *node = Some(l)
+                            }
                         }
-
-                        mem::swap(&mut self.data, &mut lr.data);
-
-                        unsafe {
-                            mem::swap(&mut (*parent).right, &mut lr.left);
-                        }
-
-                        Some(true)
-                    } else {
-                        mem::swap(&mut self.data, &mut l.data);
-
-                        let mut ll = None;
-                        mem::swap(&mut ll, &mut l.left);
-                        self.left = ll;
-
-                        Some(true)
                     }
-                }
-            },
-            Ordering::Greater => {
-                if let Some(left) = &mut self.left {
-                    match left.delete(data) {
-                        None => {
-                            self.left = None;
-                            Some(true)
-                        }
-                        Some(r) => Some(r),
-                    }
-                } else {
-                    Some(false)
+
+                    Some(curr.data)
                 }
             }
-            Ordering::Less => {
-                if let Some(right) = &mut self.right {
-                    match right.delete(data) {
-                        None => {
-                            self.right = None;
-                            Some(true)
-                        }
-                        Some(r) => Some(r),
-                    }
-                } else {
-                    Some(false)
-                }
-            }
+        } else {
+            None
         }
     }
 
