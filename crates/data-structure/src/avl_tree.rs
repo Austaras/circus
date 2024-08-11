@@ -39,7 +39,7 @@ impl<T: Eq + Ord> AVLTree<T> {
     }
 
     pub fn delete(&mut self, data: &T) -> Option<T> {
-        Node::delete(&mut self.node, data)
+        Node::delete(&mut self.node, data).map(|(data, _)| data)
     }
 
     pub fn search(&self, data: &T) -> bool {
@@ -233,59 +233,110 @@ impl<T: Eq + Ord> Node<T> {
         }?;
 
         if need_update {
-            self.balance += match dir {
-                Left => -1,
-                Right => 1,
-            } * child_balance.abs();
+            match (dir, self.balance) {
+                (Left, 1) => {
+                    self.balance = 0;
 
-            if self.balance.abs() == 2 {
-                match (child_balance, dir) {
-                    // left left
-                    (-1, Left) => self.rotate_right(),
-                    // right left
-                    (-1, Right) => self.rotate_right_left(),
-                    // left right
-                    (1, Left) => self.rotate_left_right(),
-                    // right right
-                    (1, Right) => self.rotate_left(),
-                    (0, _) => (),
-                    _ => unreachable!(),
-                };
+                    Some((self.balance, false))
+                }
+                (Left, -1) => {
+                    if child_balance > 0 {
+                        self.rotate_left_right()
+                    } else {
+                        self.rotate_right()
+                    }
 
-                Some((self.balance, false))
-            } else {
-                Some((self.balance, true))
+                    Some((self.balance, false))
+                }
+                (Left, 0) => {
+                    self.balance = -1;
+                    Some((-1, true))
+                }
+                (Right, 1) => {
+                    if child_balance < 0 {
+                        self.rotate_right_left()
+                    } else {
+                        self.rotate_left()
+                    }
+
+                    Some((self.balance, false))
+                }
+                (Right, -1) => {
+                    self.balance = 0;
+
+                    Some((self.balance, false))
+                }
+                (Right, 0) => {
+                    self.balance = 1;
+                    Some((1, true))
+                }
+                _ => unreachable!(),
             }
         } else {
             Some((self.balance, false))
         }
     }
 
-    fn delete(node: &mut Option<Box<Node<T>>>, data: &T) -> Option<T> {
-        if let Some(n) = node {
+    fn delete(node: &mut Option<Box<Node<T>>>, data: &T) -> Option<(T, bool)> {
+        let mut dir = Left;
+
+        let (data, mut should_update) = if let Some(n) = node {
             match n.data.cmp(data) {
                 Ordering::Greater => Node::delete(&mut n.left, data),
-                Ordering::Less => Node::delete(&mut n.right, data),
+                Ordering::Less => {
+                    dir = Right;
+                    Node::delete(&mut n.right, data)
+                }
                 Ordering::Equal => {
                     let curr = mem::replace(node, None).unwrap();
 
+                    let mut should_update = true;
+
                     match (curr.left, curr.right) {
                         (None, None) => (),
-                        (Some(child), None) | (None, Some(child)) => *node = Some(child),
+                        (Some(mut child), None) => {
+                            child.balance = curr.balance;
+                            *node = Some(child);
+                        }
+                        (None, Some(mut child)) => {
+                            dir = Right;
+                            child.balance = curr.balance;
+                            *node = Some(child);
+                        }
                         (Some(mut l), Some(r)) => {
                             if l.right.is_some() {
-                                let mut lr = &mut l.right;
+                                let mut lr = &l.right;
 
                                 while lr.as_ref().unwrap().right.is_some() {
-                                    lr = &mut lr.as_mut().unwrap().right;
+                                    lr = &lr.as_ref().unwrap().right;
                                 }
 
-                                let lr = mem::replace(lr, None).unwrap();
+                                let lr_data = &lr.as_ref().unwrap().data as *const T;
 
-                                l.right = lr.left;
+                                let lr_data = unsafe { &*lr_data };
+
+                                let (data, _) = Node::delete(&mut l.right, lr_data).unwrap();
+
+                                match l.balance {
+                                    1 => l.balance = 0,
+                                    0 => {
+                                        l.balance = -1;
+                                        should_update = false
+                                    }
+                                    -1 => {
+                                        let right = l.right.as_ref().unwrap();
+
+                                        if right.balance < 0 {
+                                            l.rotate_right_left()
+                                        } else {
+                                            l.rotate_left()
+                                        }
+                                    }
+                                    _ => (),
+                                }
 
                                 let new_node = Node {
-                                    data: lr.data,
+                                    data,
                                     balance: curr.balance,
                                     left: Some(l),
                                     right: Some(r),
@@ -298,14 +349,51 @@ impl<T: Eq + Ord> Node<T> {
                                 *node = Some(l)
                             }
                         }
-                    }
+                    };
 
-                    Some(curr.data)
+                    Some((curr.data, should_update))
                 }
             }
         } else {
             None
+        }?;
+
+        if should_update {
+            if let Some(node) = node.as_mut() {
+                match (dir, node.balance) {
+                    (Left, -1) | (Right, 1) => node.balance = 0,
+                    (Left, 0) => {
+                        node.balance = 1;
+                        should_update = false;
+                    }
+                    (Right, 0) => {
+                        node.balance = -1;
+                        should_update = false;
+                    }
+                    (Left, 1) => {
+                        let right = node.right.as_ref().unwrap();
+
+                        if right.balance < 0 {
+                            node.rotate_right_left()
+                        } else {
+                            node.rotate_left()
+                        }
+                    }
+                    (Right, -1) => {
+                        let left = node.left.as_ref().unwrap();
+
+                        if left.balance > 0 {
+                            node.rotate_left_right();
+                        } else {
+                            node.rotate_right()
+                        }
+                    }
+                    _ => (),
+                }
+            }
         }
+
+        Some((data, should_update))
     }
 
     fn search(&self, data: &T) -> bool {
@@ -456,6 +544,111 @@ mod tests {
         tree.check();
 
         tree.insert(7);
+
+        tree.check();
+    }
+
+    #[test]
+    fn simple_delete() {
+        let mut tree = AVLTree::new();
+        tree.insert(5);
+        tree.insert(3);
+        tree.insert(4);
+        tree.insert(6);
+
+        tree.check();
+
+        tree.delete(&5);
+
+        tree.check();
+
+        let mut tree = AVLTree::new();
+        tree.insert(9);
+        tree.insert(7);
+        tree.insert(10);
+        tree.insert(6);
+        tree.insert(8);
+
+        tree.check();
+
+        tree.delete(&9);
+
+        tree.check();
+    }
+
+    #[test]
+    fn simple_delete_rotate() {
+        let mut tree = AVLTree::new();
+        tree.insert(5);
+        tree.insert(3);
+        tree.insert(6);
+        tree.insert(1);
+        tree.insert(2);
+
+        tree.check();
+
+        tree.delete(&6);
+
+        tree.check();
+
+        let mut tree = AVLTree::new();
+        tree.insert(5);
+        tree.insert(3);
+        tree.insert(8);
+        tree.insert(6);
+        tree.insert(9);
+
+        tree.check();
+
+        tree.delete(&3);
+
+        tree.check();
+    }
+
+    #[test]
+    fn delete_rotate_current() {
+        let mut tree = AVLTree::new();
+        tree.insert(6);
+        tree.insert(4);
+        tree.insert(8);
+        tree.insert(9);
+        tree.insert(2);
+        tree.insert(5);
+        tree.insert(6);
+
+        tree.check();
+
+        tree.delete(&4);
+
+        tree.check();
+    }
+
+    #[test]
+    fn delete_double_rotate() {
+        let mut tree = AVLTree::new();
+        tree.insert(5);
+        tree.insert(3);
+        tree.insert(8);
+        tree.insert(6);
+
+        tree.check();
+
+        tree.delete(&3);
+
+        tree.check();
+
+        let mut tree = AVLTree::new();
+        tree.insert(8);
+        tree.insert(5);
+        tree.insert(10);
+        tree.insert(3);
+        tree.insert(6);
+        tree.insert(12);
+        tree.insert(4);
+
+        tree.check();
+
+        tree.delete(&3);
 
         tree.check();
     }
