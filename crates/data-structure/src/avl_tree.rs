@@ -51,11 +51,29 @@ impl<T: Eq + Ord> AVLTree<T> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Balance {
+    LHeavy,
+    RHeavy,
+    Balanced,
+}
+
+impl Display for Balance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LHeavy => f.write_char('L'),
+            RHeavy => f.write_char('R'),
+            Balanced => f.write_char('B'),
+        }
+    }
+}
+use Balance::*;
+
 struct Node<T> {
     data: T,
     left: Option<Box<Self>>,
     right: Option<Box<Self>>,
-    balance: i8,
+    balance: Balance,
 }
 
 impl<T> Node<T> {
@@ -64,7 +82,7 @@ impl<T> Node<T> {
             data,
             left: None,
             right: None,
-            balance: 0,
+            balance: Balanced,
         }
     }
 }
@@ -118,12 +136,12 @@ impl<T: Eq + Ord> Node<T> {
 
         let left = self.left.as_mut().unwrap();
 
-        if left.balance == 0 {
-            left.balance = 1;
-            self.balance = -1
+        if left.balance == Balanced {
+            left.balance = RHeavy;
+            self.balance = LHeavy
         } else {
-            left.balance = 0;
-            self.balance = 0
+            left.balance = Balanced;
+            self.balance = Balanced
         }
     }
 
@@ -140,12 +158,12 @@ impl<T: Eq + Ord> Node<T> {
 
         let right = self.right.as_mut().unwrap();
 
-        if right.balance == 0 {
-            right.balance = -1;
-            self.balance = 1
+        if right.balance == Balanced {
+            right.balance = LHeavy;
+            self.balance = RHeavy
         } else {
-            right.balance = 0;
-            self.balance = 0
+            right.balance = Balanced;
+            self.balance = Balanced
         }
     }
 
@@ -160,22 +178,21 @@ impl<T: Eq + Ord> Node<T> {
         let right = self.right.as_mut().unwrap();
 
         match right_left_balance {
-            0 => {
-                left.balance = 0;
-                right.balance = 0;
+            Balanced => {
+                left.balance = Balanced;
+                right.balance = Balanced;
             }
-            1 => {
-                left.balance = -1;
-                right.balance = 0;
+            RHeavy => {
+                left.balance = LHeavy;
+                right.balance = Balanced;
             }
-            -1 => {
-                left.balance = 0;
-                right.balance = 1;
+            LHeavy => {
+                left.balance = Balanced;
+                right.balance = RHeavy;
             }
-            _ => unreachable!(),
         };
 
-        self.balance = 0;
+        self.balance = Balanced;
     }
 
     fn rotate_left_right(&mut self) {
@@ -189,25 +206,24 @@ impl<T: Eq + Ord> Node<T> {
         let right = self.right.as_mut().unwrap();
 
         match left_right_balance {
-            0 => {
-                left.balance = 0;
-                right.balance = 0;
+            Balanced => {
+                left.balance = Balanced;
+                right.balance = Balanced;
             }
-            1 => {
-                left.balance = -1;
-                right.balance = 0;
+            RHeavy => {
+                left.balance = LHeavy;
+                right.balance = Balanced;
             }
-            -1 => {
-                left.balance = 0;
-                right.balance = 1;
+            LHeavy => {
+                left.balance = Balanced;
+                right.balance = RHeavy;
             }
-            _ => unreachable!(),
         };
 
-        self.balance = 0;
+        self.balance = Balanced;
     }
 
-    fn insert(&mut self, data: T) -> Option<(i8, bool)> {
+    fn insert(&mut self, data: T) -> Option<(Balance, bool)> {
         let mut dir = Left;
 
         let (child_balance, need_update) = match self.data.cmp(&data) {
@@ -217,7 +233,7 @@ impl<T: Eq + Ord> Node<T> {
                     left.insert(data)
                 } else {
                     self.left = Some(Box::new(Node::new(data)));
-                    Some((-1, true))
+                    Some((LHeavy, true))
                 }
             }
             Ordering::Less => {
@@ -227,20 +243,20 @@ impl<T: Eq + Ord> Node<T> {
                 } else {
                     self.right = Some(Box::new(Node::new(data)));
                     dir = Right;
-                    Some((1, true))
+                    Some((RHeavy, true))
                 }
             }
         }?;
 
         if need_update {
             match (dir, self.balance) {
-                (Left, 1) => {
-                    self.balance = 0;
+                (Left, RHeavy) => {
+                    self.balance = Balanced;
 
                     Some((self.balance, false))
                 }
-                (Left, -1) => {
-                    if child_balance > 0 {
+                (Left, LHeavy) => {
+                    if child_balance == RHeavy {
                         self.rotate_left_right()
                     } else {
                         self.rotate_right()
@@ -248,12 +264,12 @@ impl<T: Eq + Ord> Node<T> {
 
                     Some((self.balance, false))
                 }
-                (Left, 0) => {
-                    self.balance = -1;
-                    Some((-1, true))
+                (Left, Balanced) => {
+                    self.balance = LHeavy;
+                    Some((self.balance, true))
                 }
-                (Right, 1) => {
-                    if child_balance < 0 {
+                (Right, RHeavy) => {
+                    if child_balance == LHeavy {
                         self.rotate_right_left()
                     } else {
                         self.rotate_left()
@@ -261,16 +277,15 @@ impl<T: Eq + Ord> Node<T> {
 
                     Some((self.balance, false))
                 }
-                (Right, -1) => {
-                    self.balance = 0;
+                (Right, LHeavy) => {
+                    self.balance = Balanced;
 
                     Some((self.balance, false))
                 }
-                (Right, 0) => {
-                    self.balance = 1;
-                    Some((1, true))
+                (Right, Balanced) => {
+                    self.balance = RHeavy;
+                    Some((self.balance, true))
                 }
-                _ => unreachable!(),
             }
         } else {
             Some((self.balance, false))
@@ -318,21 +333,20 @@ impl<T: Eq + Ord> Node<T> {
                                 let (data, _) = Node::delete(&mut l.right, lr_data).unwrap();
 
                                 match l.balance {
-                                    1 => l.balance = 0,
-                                    0 => {
-                                        l.balance = -1;
+                                    RHeavy => l.balance = Balanced,
+                                    Balanced => {
+                                        l.balance = LHeavy;
                                         should_update = false
                                     }
-                                    -1 => {
+                                    LHeavy => {
                                         let right = l.right.as_ref().unwrap();
 
-                                        if right.balance < 0 {
+                                        if right.balance == LHeavy {
                                             l.rotate_right_left()
                                         } else {
                                             l.rotate_left()
                                         }
                                     }
-                                    _ => (),
                                 }
 
                                 let new_node = Node {
@@ -361,34 +375,33 @@ impl<T: Eq + Ord> Node<T> {
         if should_update {
             if let Some(node) = node.as_mut() {
                 match (dir, node.balance) {
-                    (Left, -1) | (Right, 1) => node.balance = 0,
-                    (Left, 0) => {
-                        node.balance = 1;
+                    (Left, LHeavy) | (Right, RHeavy) => node.balance = Balanced,
+                    (Left, Balanced) => {
+                        node.balance = RHeavy;
                         should_update = false;
                     }
-                    (Right, 0) => {
-                        node.balance = -1;
+                    (Right, Balanced) => {
+                        node.balance = LHeavy;
                         should_update = false;
                     }
-                    (Left, 1) => {
+                    (Left, RHeavy) => {
                         let right = node.right.as_ref().unwrap();
 
-                        if right.balance < 0 {
+                        if right.balance == LHeavy {
                             node.rotate_right_left()
                         } else {
                             node.rotate_left()
                         }
                     }
-                    (Right, -1) => {
+                    (Right, LHeavy) => {
                         let left = node.left.as_ref().unwrap();
 
-                        if left.balance > 0 {
+                        if left.balance == RHeavy {
                             node.rotate_left_right();
                         } else {
                             node.rotate_right()
                         }
                     }
-                    _ => (),
                 }
             }
         }
@@ -419,7 +432,11 @@ impl<T: Eq + Ord> Node<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AVLTree, Node};
+    use super::{
+        AVLTree,
+        Balance::{self, *},
+        Node,
+    };
 
     impl<T: Eq + Ord> AVLTree<T> {
         fn check(&self) {
@@ -429,10 +446,18 @@ mod tests {
         }
     }
 
+    impl Balance {
+        fn to_i8(self) -> i8 {
+            match self {
+                LHeavy => -1,
+                RHeavy => 1,
+                Balanced => 0,
+            }
+        }
+    }
+
     impl<T: Eq + Ord> Node<T> {
         fn check(&self) -> u8 {
-            assert!(self.balance.abs() <= 1);
-
             let mut left_h = 0;
             let mut right_h = 0;
 
@@ -448,7 +473,7 @@ mod tests {
                 right_h = right.check();
             }
 
-            assert_eq!(right_h as i8 - left_h as i8, self.balance);
+            assert_eq!(right_h as i8 - left_h as i8, self.balance.to_i8());
 
             1 + left_h.max(right_h)
         }
