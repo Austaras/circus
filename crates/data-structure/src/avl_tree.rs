@@ -306,12 +306,10 @@ impl<T: Eq + Ord> Node<T> {
                         should_update = false;
                     }
                     LHeavy => {
-                        let right = node_inner.right.as_ref().unwrap();
-
-                        if right.balance == LHeavy {
-                            node_inner.rotate_right_left()
+                        if node_inner.right.as_ref().map(|r| r.balance) == Some(LHeavy) {
+                            node_inner.rotate_left_right()
                         } else {
-                            node_inner.rotate_left()
+                            node_inner.rotate_right()
                         }
                     }
                 }
@@ -366,12 +364,10 @@ impl<T: Eq + Ord> Node<T> {
                                             should_update = false;
                                         }
                                         LHeavy => {
-                                            let right = l.right.as_ref().unwrap();
-
-                                            if right.balance == LHeavy {
-                                                l.rotate_right_left()
+                                            if l.right.as_ref().map(|r| r.balance) == Some(LHeavy) {
+                                                l.rotate_left_right()
                                             } else {
-                                                l.rotate_left()
+                                                l.rotate_right()
                                             }
                                         }
                                     }
@@ -606,17 +602,17 @@ mod tests {
 
     #[test]
     fn simple_delete() {
-        // let mut tree = AVLTree::new();
-        // tree.insert(5);
-        // tree.insert(3);
-        // tree.insert(4);
-        // tree.insert(6);
+        let mut tree = AVLTree::new();
+        tree.insert(5);
+        tree.insert(3);
+        tree.insert(4);
+        tree.insert(6);
 
-        // tree.check();
+        tree.check();
 
-        // tree.delete(&5);
+        tree.delete(&5);
 
-        // tree.check();
+        tree.check();
 
         let mut tree = AVLTree::new();
         tree.insert(9);
@@ -704,6 +700,23 @@ mod tests {
         tree.check();
 
         tree.delete(&3);
+
+        tree.check();
+    }
+
+    #[test]
+    fn delete_rotate_rightmost() {
+        let mut tree = AVLTree::new();
+        tree.insert(9);
+        tree.insert(7);
+        tree.insert(10);
+        tree.insert(11);
+        tree.insert(6);
+        tree.insert(8);
+        tree.insert(5);
+        tree.check();
+
+        tree.delete(&9);
 
         tree.check();
     }
