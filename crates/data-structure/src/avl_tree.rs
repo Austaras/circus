@@ -85,44 +85,8 @@ impl<T> Node<T> {
             balance: Balanced,
         }
     }
-}
 
-impl<T: Display> Display for Node<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.data.fmt(f)?;
-        f.write_char('/')?;
-        self.balance.fmt(f)?;
 
-        if let Some(left) = &self.left {
-            f.write_char(' ')?;
-            f.write_char('(')?;
-            left.fmt(f)?;
-            f.write_char(')')?;
-        }
-
-        if let Some(right) = &self.right {
-            if self.left.is_none() {
-                f.write_str(" ()")?;
-            }
-
-            f.write_char(' ')?;
-            f.write_char('(')?;
-            right.fmt(f)?;
-            f.write_char(')')?;
-        }
-
-        Ok(())
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-enum Direction {
-    Left,
-    Right,
-}
-use Direction::*;
-
-impl<T: Eq + Ord> Node<T> {
     fn rotate_left_inner(&mut self) {
         mem::swap(&mut self.left, &mut self.right);
         let left = self.left.as_mut().unwrap();
@@ -223,6 +187,74 @@ impl<T: Eq + Ord> Node<T> {
         self.balance = Balanced;
     }
 
+    fn delete_rightmost(node: &mut Option<Box<Node<T>>>) -> (T, bool) {
+        let node_inner = node.as_mut().unwrap();
+
+        if node_inner.right.is_some() {
+            let (data, mut should_update) = Node::delete_rightmost(&mut node_inner.right);
+
+            if should_update {
+                match node_inner.balance {
+                    RHeavy => node_inner.balance = Balanced,
+                    Balanced => {
+                        node_inner.balance = LHeavy;
+                        should_update = false;
+                    }
+                    LHeavy => {
+                        if node_inner.right.as_ref().map(|r| r.balance) == Some(LHeavy) {
+                            node_inner.rotate_left_right()
+                        } else {
+                            node_inner.rotate_right()
+                        }
+                    }
+                }
+            }
+
+            (data, should_update)
+        } else {
+            let node = mem::replace(node, None).unwrap();
+
+            (node.data, true)
+        }
+    }
+}
+
+impl<T: Display> Display for Node<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.data.fmt(f)?;
+        f.write_char('/')?;
+        self.balance.fmt(f)?;
+
+        if let Some(left) = &self.left {
+            f.write_char(' ')?;
+            f.write_char('(')?;
+            left.fmt(f)?;
+            f.write_char(')')?;
+        }
+
+        if let Some(right) = &self.right {
+            if self.left.is_none() {
+                f.write_str(" ()")?;
+            }
+
+            f.write_char(' ')?;
+            f.write_char('(')?;
+            right.fmt(f)?;
+            f.write_char(')')?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Direction {
+    Left,
+    Right,
+}
+use Direction::*;
+
+impl<T: Eq + Ord> Node<T> {
     fn insert(&mut self, data: T) -> Option<(Balance, bool)> {
         let mut dir = Left;
 
@@ -289,37 +321,6 @@ impl<T: Eq + Ord> Node<T> {
             }
         } else {
             Some((self.balance, false))
-        }
-    }
-
-    fn delete_rightmost(node: &mut Option<Box<Node<T>>>) -> (T, bool) {
-        let node_inner = node.as_mut().unwrap();
-
-        if node_inner.right.is_some() {
-            let (data, mut should_update) = Node::delete_rightmost(&mut node_inner.right);
-
-            if should_update {
-                match node_inner.balance {
-                    RHeavy => node_inner.balance = Balanced,
-                    Balanced => {
-                        node_inner.balance = LHeavy;
-                        should_update = false;
-                    }
-                    LHeavy => {
-                        if node_inner.right.as_ref().map(|r| r.balance) == Some(LHeavy) {
-                            node_inner.rotate_left_right()
-                        } else {
-                            node_inner.rotate_right()
-                        }
-                    }
-                }
-            }
-
-            (data, should_update)
-        } else {
-            let node = mem::replace(node, None).unwrap();
-
-            (node.data, true)
         }
     }
 
