@@ -31,7 +31,28 @@ impl<T: Display> Display for RedBlackTree<T> {
 impl<T: Eq + Ord> RedBlackTree<T> {
     pub fn insert(&mut self, data: T) -> bool {
         if let Some(node) = &mut self.node {
-            let (inserted, _) = node.insert(data, None, Left, Black);
+            let dir = match node.data.cmp(&data) {
+                Ordering::Less => Right,
+                Ordering::Equal | Ordering::Greater => Left,
+            };
+
+            let (inserted, action) = node.insert(data, None, dir, Black);
+
+            match action {
+                Some(I1 | I2_0) => (),
+                Some(I2_1) => {
+                    node.color = Red;
+                    node.left.as_mut().unwrap().color = Black;
+                    node.right.as_mut().unwrap().color = Black;
+                }
+                Some(I4) => node.color = Black,
+                Some(I6(true)) => match dir {
+                    Left => node.rotate_right(),
+                    Right => node.rotate_left(),
+                },
+                Some(I2_2 | I3 | I5 | I6(_)) => unreachable!(),
+                None => (),
+            }
 
             inserted
         } else {
@@ -42,7 +63,7 @@ impl<T: Eq + Ord> RedBlackTree<T> {
     }
 
     pub fn delete(&mut self, data: &T) -> Option<T> {
-        None
+        Node::delete(&mut self.node, data, None, Black, Black, Black).1
     }
 
     pub fn search(&self, data: &T) -> bool {
@@ -86,6 +107,14 @@ impl<T> Node<T> {
             left: None,
             right: None,
         }
+    }
+
+    fn left_color(&self) -> Color {
+        self.left.as_ref().map(|l| l.color).unwrap_or(Black)
+    }
+
+    fn right_color(&self) -> Color {
+        self.right.as_ref().map(|r| r.color).unwrap_or(Black)
     }
 
     fn rotate_left(&mut self) {
@@ -140,7 +169,7 @@ impl<T: Display> Display for Node<T> {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 enum Direction {
     Left,
     Right,
@@ -150,15 +179,29 @@ use Direction::*;
 
 #[derive(Clone, Copy, Debug)]
 enum Insert {
-    One,
-    Two(bool),
-    Three,
-    Four,
-    Five,
-    Six(bool),
+    I1,
+    I2_0,
+    I2_1,
+    I2_2,
+    I3,
+    I4,
+    I5,
+    I6(bool),
 }
 
 use Insert::*;
+
+#[derive(Clone, Copy, Debug)]
+enum Delete {
+    D1,
+    D2,
+    D3,
+    D4,
+    D5,
+    D6,
+}
+
+use Delete::*;
 
 impl<T: Eq + Ord> Node<T> {
     fn insert(
@@ -172,19 +215,19 @@ impl<T: Eq + Ord> Node<T> {
 
         let curr_action = |dir| match (self.color, parent, uncle) {
             // I1, parent is black, do nothing
-            (Black, _, _) => One,
+            (Black, _, _) => I1,
             // I2, parent is red, grand parent is black, repaint
-            (Red, Some(Black), Red) => Two(false),
+            (Red, Some(Black), Red) => I2_2,
             // I3, root, do nothing
             // (None, _, _) => Three,
             // I4, child of red root, repaint
-            (Red, None, _) => Four,
+            (Red, None, _) => I4,
             // I5 or I6 based on child direction
             (Red, Some(Black), Black) => {
                 if parent_dir != dir {
-                    Five
+                    I5
                 } else {
-                    Six(false)
+                    I6(false)
                 }
             }
             _ => unreachable!(),
@@ -194,7 +237,7 @@ impl<T: Eq + Ord> Node<T> {
         let r_color = self.right.as_ref().map(|r| r.color).unwrap_or(Black);
 
         let (inserted, mut action, curr_action) = match self.data.cmp(&data) {
-            Ordering::Equal => (false, None, Three),
+            Ordering::Equal => (false, None, I3),
             Ordering::Greater => {
                 let curr_action = curr_action(Left);
                 if let Some(left) = &mut self.left {
@@ -222,30 +265,31 @@ impl<T: Eq + Ord> Node<T> {
         };
 
         match action {
-            Some(One) => action = None,
-            Some(Two(false)) => action = Some(Two(true)),
-            Some(Two(true)) => {
+            Some(I1) => action = None,
+            Some(I2_2) => action = Some(I2_1),
+            Some(I2_1) => {
                 self.color = Red;
                 self.left.as_mut().unwrap().color = Black;
                 self.right.as_mut().unwrap().color = Black;
 
-                action = Some(curr_action);
+                action = Some(I2_0);
             }
-            Some(Three) => {
+            Some(I2_0) => action = Some(curr_action),
+            Some(I3) => {
                 action = None;
             }
-            Some(Four) => {
+            Some(I4) => {
                 self.color = Black;
                 action = None;
             }
-            Some(Five) => {
+            Some(I5) => {
                 self.rotate(dir);
-                action = Some(Six(true))
+                action = Some(I6(true))
             }
-            Some(Six(false)) => {
-                action = Some(Six(true));
+            Some(I6(false)) => {
+                action = Some(I6(true));
             }
-            Some(Six(true)) => {
+            Some(I6(true)) => {
                 self.rotate(dir);
                 action = None
             }
@@ -253,6 +297,102 @@ impl<T: Eq + Ord> Node<T> {
         }
 
         (inserted, action)
+    }
+
+    fn delete(
+        node: &mut Option<Box<Node<T>>>,
+        data: &T,
+        parent: Option<Color>,
+        sibling: Color,
+        close: Color,
+        distant: Color,
+    ) -> (Option<Delete>, Option<T>) {
+        if let Some(n) = node {
+            let new_parent = Some(n.color);
+
+            match n.data.cmp(data) {
+                Ordering::Greater => {
+                    let (sibling, close, distant) = if let Some(r) = n.right.as_ref() {
+                        (r.color, r.left_color(), r.right_color())
+                    } else {
+                        (Black, Black, Black)
+                    };
+                    let (action, data) =
+                        Node::delete(&mut n.left, data, new_parent, sibling, close, distant);
+
+                    match action {
+                        None => (),
+                        Some(D2) => {
+                            if let Some(r) = n.right.as_mut() {
+                                r.color = Red
+                            }
+                        }
+                        Some(_) => todo!(),
+                    }
+
+                    (action, data)
+                }
+                Ordering::Less => {
+                    let (sibling, close, distant) = if let Some(l) = n.left.as_ref() {
+                        (l.color, l.right_color(), l.left_color())
+                    } else {
+                        (Black, Black, Black)
+                    };
+                    Node::delete(&mut n.right, data, new_parent, sibling, close, distant)
+                }
+                Ordering::Equal => {
+                    let curr = mem::replace(node, None).unwrap();
+                    let color = curr.color;
+                    let mut action = None;
+
+                    match (curr.left, curr.right) {
+                        (None, None) => match curr.color {
+                            Red => (),
+                            Black => match (parent, sibling, close, distant) {
+                                (None, _, _, _) => (),
+                                (Some(Black), Black, Black, Black) => action = Some(D2),
+                                _ => todo!(),
+                            },
+                        },
+                        (Some(mut child), None) | (None, Some(mut child)) => {
+                            child.color = Black;
+                            *node = Some(child)
+                        }
+                        (Some(mut l), Some(r)) => {
+                            if l.right.is_some() {
+                                let mut lr = &mut l.right;
+
+                                while lr.as_ref().unwrap().right.is_some() {
+                                    lr = &mut lr.as_mut().unwrap().right;
+                                }
+
+                                let lr = mem::replace(lr, None).unwrap();
+
+                                l.right = lr.left;
+
+                                let new_node = Node {
+                                    data: lr.data,
+                                    color,
+                                    left: Some(l),
+                                    right: Some(r),
+                                };
+
+                                *node = Some(Box::new(new_node));
+                            } else {
+                                l.right = Some(r);
+                                l.color = color;
+
+                                *node = Some(l)
+                            }
+                        }
+                    }
+
+                    (action, Some(curr.data))
+                }
+            }
+        } else {
+            (None, None)
+        }
     }
 
     fn search(&self, data: &T) -> bool {
@@ -347,9 +487,7 @@ mod tests {
 
         tree.insert(5);
         tree.insert(7);
-        println!("{}", tree);
         tree.insert(9);
-        println!("{}", tree);
 
         assert!(tree.search(&9));
 
@@ -362,6 +500,39 @@ mod tests {
         tree.insert(6);
 
         assert!(tree.search(&6));
+
+        tree.check();
+    }
+
+    #[test]
+    fn basic_delete() {
+        let mut tree = RedBlackTree::new();
+
+        tree.insert(14);
+        tree.insert(7);
+        tree.insert(3);
+
+        tree.check();
+
+        tree.delete(&7);
+
+        tree.check();
+    }
+
+    #[test]
+    fn basic_insert_bubble() {
+        let mut tree = RedBlackTree::new();
+
+        tree.insert(1);
+        tree.insert(2);
+        tree.insert(3);
+        tree.insert(4);
+        tree.insert(5);
+        tree.insert(6);
+        tree.insert(7);
+        tree.insert(8);
+        tree.insert(9);
+        tree.insert(10);
 
         tree.check();
     }

@@ -86,7 +86,6 @@ impl<T> Node<T> {
         }
     }
 
-
     fn rotate_left_inner(&mut self) {
         mem::swap(&mut self.left, &mut self.right);
         let left = self.left.as_mut().unwrap();
@@ -653,6 +652,20 @@ mod tests {
         tree.check();
 
         tree.delete(&3);
+
+        tree.check();
+    }
+
+    #[test]
+    fn simple_delete_rightmost() {
+        let mut tree = AVLTree::new();
+        tree.insert(5);
+        tree.insert(3);
+        tree.insert(7);
+        tree.insert(1);
+        tree.check();
+
+        tree.delete(&5);
 
         tree.check();
     }
