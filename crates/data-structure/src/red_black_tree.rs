@@ -36,23 +36,7 @@ impl<T: Eq + Ord> RedBlackTree<T> {
                 Ordering::Equal | Ordering::Greater => Left,
             };
 
-            let (inserted, action) = node.insert(data, None, dir, Black);
-
-            match action {
-                Some(I1 | I2_0) => (),
-                Some(I2_1) => {
-                    node.color = Red;
-                    node.left.as_mut().unwrap().color = Black;
-                    node.right.as_mut().unwrap().color = Black;
-                }
-                Some(I4) => node.color = Black,
-                Some(I6(true)) => match dir {
-                    Left => node.rotate_right(),
-                    Right => node.rotate_left(),
-                },
-                Some(I2_2 | I3 | I5 | I6(_)) => unreachable!(),
-                None => (),
-            }
+            let (inserted, _) = node.insert(data, None, dir, Black);
 
             inserted
         } else {
@@ -180,13 +164,14 @@ use Direction::*;
 #[derive(Clone, Copy, Debug)]
 enum Insert {
     I1,
-    I2_0,
-    I2_1,
-    I2_2,
+    I2Grand,
+    I2Parent,
+    I2Curr,
     I3,
     I4,
     I5,
-    I6(bool),
+    I6Curr,
+    I6Parent,
 }
 
 use Insert::*;
@@ -217,7 +202,7 @@ impl<T: Eq + Ord> Node<T> {
             // I1, parent is black, do nothing
             (Black, _, _) => I1,
             // I2, parent is red, grand parent is black, repaint
-            (Red, Some(Black), Red) => I2_2,
+            (Red, Some(Black), Red) => I2Curr,
             // I3, root, do nothing
             // (None, _, _) => Three,
             // I4, child of red root, repaint
@@ -227,7 +212,7 @@ impl<T: Eq + Ord> Node<T> {
                 if parent_dir != dir {
                     I5
                 } else {
-                    I6(false)
+                    I6Curr
                 }
             }
             _ => unreachable!(),
@@ -236,7 +221,7 @@ impl<T: Eq + Ord> Node<T> {
         let l_color = self.left.as_ref().map(|l| l.color).unwrap_or(Black);
         let r_color = self.right.as_ref().map(|r| r.color).unwrap_or(Black);
 
-        let (inserted, mut action, curr_action) = match self.data.cmp(&data) {
+        let (inserted, action, curr_action) = match self.data.cmp(&data) {
             Ordering::Equal => (false, None, I3),
             Ordering::Greater => {
                 let curr_action = curr_action(Left);
@@ -264,39 +249,44 @@ impl<T: Eq + Ord> Node<T> {
             }
         };
 
+        let action = self.insert_action(action, curr_action, dir);
+
+        (inserted, action)
+    }
+
+    fn insert_action(
+        &mut self,
+        action: Option<Insert>,
+        curr_action: Insert,
+        dir: Direction,
+    ) -> Option<Insert> {
         match action {
-            Some(I1) => action = None,
-            Some(I2_2) => action = Some(I2_1),
-            Some(I2_1) => {
+            Some(I1) => None,
+            Some(I2Curr) => Some(I2Parent),
+            Some(I2Parent) => {
                 self.color = Red;
                 self.left.as_mut().unwrap().color = Black;
                 self.right.as_mut().unwrap().color = Black;
 
-                action = Some(I2_0);
+                Some(I2Grand)
             }
-            Some(I2_0) => action = Some(curr_action),
-            Some(I3) => {
-                action = None;
-            }
+            Some(I2Grand) => self.insert_action(Some(curr_action), curr_action, dir),
+            Some(I3) => None,
             Some(I4) => {
                 self.color = Black;
-                action = None;
+                None
             }
             Some(I5) => {
                 self.rotate(dir);
-                action = Some(I6(true))
+                Some(I6Parent)
             }
-            Some(I6(false)) => {
-                action = Some(I6(true));
-            }
-            Some(I6(true)) => {
+            Some(I6Curr) => Some(I6Parent),
+            Some(I6Parent) => {
                 self.rotate(dir);
-                action = None
+                None
             }
-            None => (),
+            None => None,
         }
-
-        (inserted, action)
     }
 
     fn delete(
@@ -312,13 +302,13 @@ impl<T: Eq + Ord> Node<T> {
 
             match n.data.cmp(data) {
                 Ordering::Greater => {
-                    let (sibling, close, distant) = if let Some(r) = n.right.as_ref() {
+                    let (new_sibling, new_close, new_distant) = if let Some(r) = n.right.as_ref() {
                         (r.color, r.left_color(), r.right_color())
                     } else {
                         (Black, Black, Black)
                     };
-                    let (action, data) =
-                        Node::delete(&mut n.left, data, new_parent, sibling, close, distant);
+                    let (mut action, data) =
+                        Node::delete(&mut n.left, data, new_parent, new_sibling, new_close, new_distant);
 
                     match action {
                         None => (),
@@ -326,6 +316,23 @@ impl<T: Eq + Ord> Node<T> {
                             if let Some(r) = n.right.as_mut() {
                                 r.color = Red
                             }
+
+                            action = match n.color {
+                                Red => None,
+                                Black => match (parent, sibling, close, distant) {
+                                    (None, _, _, _) => None,
+                                    (Some(Black), Black, Black, Black) => Some(D2),
+                                    (Some(Red), Black, Black, Black) => Some(D4),
+                                    _ => todo!(),
+                                },
+                            }
+                        }
+                        Some(D4) => {
+                            n.color = Black;
+                            if let Some(r) = n.right.as_mut() {
+                                r.color = Red
+                            }
+                            action = None
                         }
                         Some(_) => todo!(),
                     }
@@ -333,12 +340,42 @@ impl<T: Eq + Ord> Node<T> {
                     (action, data)
                 }
                 Ordering::Less => {
-                    let (sibling, close, distant) = if let Some(l) = n.left.as_ref() {
+                    let (new_sibling, new_close, new_distant) = if let Some(l) = n.left.as_ref() {
                         (l.color, l.right_color(), l.left_color())
                     } else {
                         (Black, Black, Black)
                     };
-                    Node::delete(&mut n.right, data, new_parent, sibling, close, distant)
+                    let (mut action, data) =
+                        Node::delete(&mut n.right, data, new_parent, new_sibling, new_close, new_distant);
+
+                    match action {
+                        None => (),
+                        Some(D2) => {
+                            if let Some(l) = n.left.as_mut() {
+                                l.color = Red
+                            }
+
+                            action = match n.color {
+                                Red => None,
+                                Black => match (parent, sibling, close, distant) {
+                                    (None, _, _, _) => None,
+                                    (Some(Black), Black, Black, Black) => Some(D2),
+                                    (Some(Red), Black, Black, Black) => Some(D4),
+                                    _ => todo!(),
+                                },
+                            }
+                        }
+                        Some(D4) => {
+                            n.color = Black;
+                            if let Some(l) = n.left.as_mut() {
+                                l.color = Red
+                            }
+                            action = None
+                        }
+                        Some(_) => todo!(),
+                    }
+
+                    (action, data)
                 }
                 Ordering::Equal => {
                     let curr = mem::replace(node, None).unwrap();
@@ -351,6 +388,7 @@ impl<T: Eq + Ord> Node<T> {
                             Black => match (parent, sibling, close, distant) {
                                 (None, _, _, _) => (),
                                 (Some(Black), Black, Black, Black) => action = Some(D2),
+                                (Some(Red), Black, Black, Black) => action = Some(D4),
                                 _ => todo!(),
                             },
                         },
@@ -505,6 +543,21 @@ mod tests {
     }
 
     #[test]
+    fn basic_insert_bubble() {
+        let mut tree = RedBlackTree::new();
+
+        tree.insert(1);
+        tree.insert(2);
+        tree.insert(3);
+        tree.insert(4);
+        tree.insert(5);
+        tree.insert(6);
+        tree.insert(7);
+
+        tree.check();
+    }
+
+    #[test]
     fn basic_delete() {
         let mut tree = RedBlackTree::new();
 
@@ -520,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    fn basic_insert_bubble() {
+    fn basic_delete_action() {
         let mut tree = RedBlackTree::new();
 
         tree.insert(1);
@@ -534,6 +587,13 @@ mod tests {
         tree.insert(9);
         tree.insert(10);
 
+        tree.delete(&10);
+        tree.check();
+        tree.delete(&9);
+        tree.check();
+        tree.delete(&8);
+        tree.check();
+        tree.delete(&7);
         tree.check();
     }
 }
