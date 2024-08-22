@@ -298,6 +298,17 @@ impl<T: Eq + Ord> Node<T> {
         distant: Color,
     ) -> (Option<Delete>, Option<T>) {
         if let Some(n) = node {
+            let mut action = match n.color {
+                Red => None,
+                Black => match (parent, sibling, close, distant) {
+                    (None, _, _, _) => None,
+                    (Some(Black), Black, Black, Black) => Some(D2),
+                    (Some(Red), Black, Black, Black) => Some(D4),
+                    (Some(_), Black, _, Red) => Some(D6),
+                    _ => todo!(),
+                },
+            };
+
             let new_parent = Some(n.color);
 
             match n.data.cmp(data) {
@@ -307,37 +318,43 @@ impl<T: Eq + Ord> Node<T> {
                     } else {
                         (Black, Black, Black)
                     };
-                    let (mut action, data) =
-                        Node::delete(&mut n.left, data, new_parent, new_sibling, new_close, new_distant);
+                    let (mut curr_action, data) = Node::delete(
+                        &mut n.left,
+                        data,
+                        new_parent,
+                        new_sibling,
+                        new_close,
+                        new_distant,
+                    );
 
-                    match action {
+                    match curr_action {
                         None => (),
+                        Some(D1) => curr_action = None,
                         Some(D2) => {
                             if let Some(r) = n.right.as_mut() {
                                 r.color = Red
                             }
 
-                            action = match n.color {
-                                Red => None,
-                                Black => match (parent, sibling, close, distant) {
-                                    (None, _, _, _) => None,
-                                    (Some(Black), Black, Black, Black) => Some(D2),
-                                    (Some(Red), Black, Black, Black) => Some(D4),
-                                    _ => todo!(),
-                                },
-                            }
+                            curr_action = action
                         }
                         Some(D4) => {
                             n.color = Black;
                             if let Some(r) = n.right.as_mut() {
                                 r.color = Red
                             }
-                            action = None
+                            curr_action = None
+                        }
+                        Some(D6) => {
+                            n.rotate_left();
+                            n.left.as_mut().unwrap().color = Black;
+                            n.right.as_mut().unwrap().color = Black;
+
+                            curr_action = None
                         }
                         Some(_) => todo!(),
                     }
 
-                    (action, data)
+                    (curr_action, data)
                 }
                 Ordering::Less => {
                     let (new_sibling, new_close, new_distant) = if let Some(l) = n.left.as_ref() {
@@ -345,53 +362,51 @@ impl<T: Eq + Ord> Node<T> {
                     } else {
                         (Black, Black, Black)
                     };
-                    let (mut action, data) =
-                        Node::delete(&mut n.right, data, new_parent, new_sibling, new_close, new_distant);
+                    let (mut curr_action, data) = Node::delete(
+                        &mut n.right,
+                        data,
+                        new_parent,
+                        new_sibling,
+                        new_close,
+                        new_distant,
+                    );
 
-                    match action {
+                    match curr_action {
                         None => (),
+                        Some(D1) => curr_action = None,
                         Some(D2) => {
                             if let Some(l) = n.left.as_mut() {
                                 l.color = Red
                             }
 
-                            action = match n.color {
-                                Red => None,
-                                Black => match (parent, sibling, close, distant) {
-                                    (None, _, _, _) => None,
-                                    (Some(Black), Black, Black, Black) => Some(D2),
-                                    (Some(Red), Black, Black, Black) => Some(D4),
-                                    _ => todo!(),
-                                },
-                            }
+                            curr_action = action
                         }
                         Some(D4) => {
                             n.color = Black;
                             if let Some(l) = n.left.as_mut() {
                                 l.color = Red
                             }
-                            action = None
+                            curr_action = None
+                        }
+                        Some(D6) => {
+                            n.rotate_right();
+                            n.left.as_mut().unwrap().color = Black;
+                            n.right.as_mut().unwrap().color = Black;
+
+                            curr_action = None
                         }
                         Some(_) => todo!(),
                     }
 
-                    (action, data)
+                    (curr_action, data)
                 }
                 Ordering::Equal => {
                     let curr = mem::replace(node, None).unwrap();
                     let color = curr.color;
-                    let mut action = None;
+                    let mut curr_action = None;
 
                     match (curr.left, curr.right) {
-                        (None, None) => match curr.color {
-                            Red => (),
-                            Black => match (parent, sibling, close, distant) {
-                                (None, _, _, _) => (),
-                                (Some(Black), Black, Black, Black) => action = Some(D2),
-                                (Some(Red), Black, Black, Black) => action = Some(D4),
-                                _ => todo!(),
-                            },
-                        },
+                        (None, None) => curr_action = action,
                         (Some(mut child), None) | (None, Some(mut child)) => {
                             child.color = Black;
                             *node = Some(child)
@@ -425,7 +440,7 @@ impl<T: Eq + Ord> Node<T> {
                         }
                     }
 
-                    (action, Some(curr.data))
+                    (curr_action, Some(curr.data))
                 }
             }
         } else {
@@ -594,6 +609,31 @@ mod tests {
         tree.delete(&8);
         tree.check();
         tree.delete(&7);
+        tree.check();
+    }
+
+    #[test]
+    fn basic_delete_rotate() {
+        let mut tree = RedBlackTree::new();
+
+        tree.insert(1);
+        tree.insert(2);
+        tree.insert(3);
+        tree.insert(4);
+        tree.insert(5);
+        tree.insert(6);
+        tree.insert(7);
+        tree.insert(8);
+        tree.insert(9);
+        tree.insert(10);
+
+        tree.delete(&10);
+        tree.delete(&9);
+        tree.delete(&8);
+        tree.insert(9);
+        tree.check();
+
+        tree.delete(&5);
         tree.check();
     }
 }
