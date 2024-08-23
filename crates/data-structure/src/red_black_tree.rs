@@ -123,6 +123,138 @@ impl<T> Node<T> {
             Right => self.rotate_left(),
         }
     }
+
+    fn insert_action(
+        &mut self,
+        action: Option<Insert>,
+        curr_action: Insert,
+        dir: Direction,
+    ) -> Option<Insert> {
+        match action {
+            Some(I1) => None,
+            Some(I2Curr) => Some(I2Parent),
+            Some(I2Parent) => {
+                self.color = Red;
+                self.left.as_mut().unwrap().color = Black;
+                self.right.as_mut().unwrap().color = Black;
+
+                Some(I2Grand)
+            }
+            Some(I2Grand) => self.insert_action(Some(curr_action), curr_action, dir),
+            Some(I3) => None,
+            Some(I4) => {
+                self.color = Black;
+                None
+            }
+            Some(I5) => {
+                self.rotate(dir);
+                Some(I6Parent)
+            }
+            Some(I6Curr) => Some(I6Parent),
+            Some(I6Parent) => {
+                self.rotate(dir);
+                None
+            }
+            None => None,
+        }
+    }
+
+    fn delete_action_4(&mut self, dir: Direction) -> bool {
+        self.color = Black;
+
+        match dir {
+            Left => self.right.as_mut().unwrap().color = Red,
+            Right => self.left.as_mut().unwrap().color = Red,
+        }
+
+        false
+    }
+
+    fn delete_action_5(&mut self, dir: Direction) -> bool {
+        match dir {
+            Left => {
+                let r = self.right.as_mut().unwrap();
+                r.rotate_right();
+
+                r.right.as_mut().unwrap().color = Red;
+
+                if let Some(r) = r.right.as_mut().unwrap().right.as_mut() {
+                    r.color = Black;
+                }
+
+                self.delete_action_6(dir)
+            }
+            Right => {
+                let l = self.left.as_mut().unwrap();
+                l.rotate_left();
+
+                l.left.as_mut().unwrap().color = Red;
+
+                if let Some(l) = l.left.as_mut().unwrap().left.as_mut() {
+                    l.color = Black;
+                }
+
+                self.delete_action_6(dir)
+            }
+        }
+    }
+
+    fn delete_action_6(&mut self, dir: Direction) -> bool {
+        match dir {
+            Left => {
+                self.rotate_left();
+                self.right.as_mut().unwrap().color = Black
+            }
+            Right => {
+                self.rotate_right();
+                self.left.as_mut().unwrap().color = Black;
+            }
+        }
+
+        false
+    }
+
+    fn delete_action(&mut self, action: Option<Delete>, dir: Direction) -> bool {
+        match action {
+            None | Some(D1) => false,
+            Some(D2) => {
+                match dir {
+                    Left => self.right.as_mut().unwrap().color = Red,
+                    Right => self.left.as_mut().unwrap().color = Red,
+                };
+                true
+            }
+            Some(D3) => match dir {
+                Left => {
+                    self.rotate_left();
+                    self.left.as_mut().unwrap().color = Red;
+
+                    let r = self.right.as_mut().unwrap();
+
+                    match (r.left_color(), r.right_color()) {
+                        (_, Red) => self.delete_action_6(dir),
+                        (Red, Black) => self.delete_action_5(dir),
+                        (Black, Black) => self.delete_action_4(dir),
+                    }
+                }
+                Right => {
+                    self.rotate_right();
+                    self.right.as_mut().unwrap().color = Red;
+
+                    let l = self.left.as_mut().unwrap();
+
+                    match (l.right_color(), l.left_color()) {
+                        (_, Red) => self.delete_action_6(dir),
+                        (Red, Black) => self.delete_action_5(dir),
+                        (Black, Black) => self.delete_action_4(dir),
+                    }
+                }
+            },
+            Some(D4) => self.delete_action_4(dir),
+            Some(D5) => self.delete_action_5(dir),
+            Some(D6) => self.delete_action_6(dir),
+        }
+    }
 }
 
 impl<T: Display> Display for Node<T> {
@@ -254,41 +386,6 @@ impl<T: Eq + Ord> Node<T> {
         (inserted, action)
     }
 
-    fn insert_action(
-        &mut self,
-        action: Option<Insert>,
-        curr_action: Insert,
-        dir: Direction,
-    ) -> Option<Insert> {
-        match action {
-            Some(I1) => None,
-            Some(I2Curr) => Some(I2Parent),
-            Some(I2Parent) => {
-                self.color = Red;
-                self.left.as_mut().unwrap().color = Black;
-                self.right.as_mut().unwrap().color = Black;
-
-                Some(I2Grand)
-            }
-            Some(I2Grand) => self.insert_action(Some(curr_action), curr_action, dir),
-            Some(I3) => None,
-            Some(I4) => {
-                self.color = Black;
-                None
-            }
-            Some(I5) => {
-                self.rotate(dir);
-                Some(I6Parent)
-            }
-            Some(I6Curr) => Some(I6Parent),
-            Some(I6Parent) => {
-                self.rotate(dir);
-                None
-            }
-            None => None,
-        }
-    }
-
     fn delete(
         node: &mut Option<Box<Node<T>>>,
         data: &T,
@@ -301,9 +398,11 @@ impl<T: Eq + Ord> Node<T> {
             let mut action = match n.color {
                 Red => None,
                 Black => match (parent, sibling, close, distant) {
-                    (None, _, _, _) => None,
+                    (None, _, _, _) => Some(D1),
                     (Some(Black), Black, Black, Black) => Some(D2),
+                    (Some(Black), Red, Black, Black) => Some(D3),
                     (Some(Red), Black, Black, Black) => Some(D4),
+                    (Some(_), Black, Red, Black) => Some(D5),
                     (Some(_), Black, _, Red) => Some(D6),
                     _ => todo!(),
                 },
@@ -318,7 +417,7 @@ impl<T: Eq + Ord> Node<T> {
                     } else {
                         (Black, Black, Black)
                     };
-                    let (mut curr_action, data) = Node::delete(
+                    let (curr_action, data) = Node::delete(
                         &mut n.left,
                         data,
                         new_parent,
@@ -327,34 +426,13 @@ impl<T: Eq + Ord> Node<T> {
                         new_distant,
                     );
 
-                    match curr_action {
-                        None => (),
-                        Some(D1) => curr_action = None,
-                        Some(D2) => {
-                            if let Some(r) = n.right.as_mut() {
-                                r.color = Red
-                            }
+                    let should_continue = n.delete_action(curr_action, Left);
 
-                            curr_action = action
-                        }
-                        Some(D4) => {
-                            n.color = Black;
-                            if let Some(r) = n.right.as_mut() {
-                                r.color = Red
-                            }
-                            curr_action = None
-                        }
-                        Some(D6) => {
-                            n.rotate_left();
-                            n.left.as_mut().unwrap().color = Black;
-                            n.right.as_mut().unwrap().color = Black;
-
-                            curr_action = None
-                        }
-                        Some(_) => todo!(),
+                    if !should_continue {
+                        action = None
                     }
 
-                    (curr_action, data)
+                    (action, data)
                 }
                 Ordering::Less => {
                     let (new_sibling, new_close, new_distant) = if let Some(l) = n.left.as_ref() {
@@ -362,7 +440,7 @@ impl<T: Eq + Ord> Node<T> {
                     } else {
                         (Black, Black, Black)
                     };
-                    let (mut curr_action, data) = Node::delete(
+                    let (curr_action, data) = Node::delete(
                         &mut n.right,
                         data,
                         new_parent,
@@ -371,34 +449,13 @@ impl<T: Eq + Ord> Node<T> {
                         new_distant,
                     );
 
-                    match curr_action {
-                        None => (),
-                        Some(D1) => curr_action = None,
-                        Some(D2) => {
-                            if let Some(l) = n.left.as_mut() {
-                                l.color = Red
-                            }
+                    let should_continue = n.delete_action(curr_action, Right);
 
-                            curr_action = action
-                        }
-                        Some(D4) => {
-                            n.color = Black;
-                            if let Some(l) = n.left.as_mut() {
-                                l.color = Red
-                            }
-                            curr_action = None
-                        }
-                        Some(D6) => {
-                            n.rotate_right();
-                            n.left.as_mut().unwrap().color = Black;
-                            n.right.as_mut().unwrap().color = Black;
-
-                            curr_action = None
-                        }
-                        Some(_) => todo!(),
+                    if !should_continue {
+                        action = None
                     }
 
-                    (curr_action, data)
+                    (action, data)
                 }
                 Ordering::Equal => {
                     let curr = mem::replace(node, None).unwrap();
@@ -631,6 +688,31 @@ mod tests {
         tree.delete(&9);
         tree.delete(&8);
         tree.insert(9);
+        tree.check();
+
+        tree.delete(&5);
+        tree.check();
+    }
+
+    #[test]
+    fn delete_mutlti_rotate() {
+        let mut tree = RedBlackTree::new();
+
+        tree.insert(1);
+        tree.insert(2);
+        tree.insert(3);
+        tree.insert(4);
+        tree.insert(5);
+        tree.insert(6);
+        tree.insert(8);
+        tree.insert(9);
+        tree.insert(10);
+        tree.insert(11);
+
+        tree.delete(&11);
+        tree.delete(&10);
+        tree.delete(&8);
+        tree.insert(7);
         tree.check();
 
         tree.delete(&5);
