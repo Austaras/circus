@@ -227,32 +227,77 @@ impl<T> Node<T> {
             Some(D3) => match dir {
                 Left => {
                     self.rotate_left();
+                    self.color = Black;
                     self.left.as_mut().unwrap().color = Red;
 
-                    let r = self.right.as_mut().unwrap();
+                    let l = self.left.as_mut().unwrap();
+                    let lr = l.right.as_ref().unwrap();
 
-                    match (r.left_color(), r.right_color()) {
-                        (_, Red) => self.delete_action_6(dir),
-                        (Red, Black) => self.delete_action_5(dir),
-                        (Black, Black) => self.delete_action_4(dir),
+                    match (lr.left_color(), lr.right_color()) {
+                        (_, Red) => l.delete_action_6(dir),
+                        (Red, Black) => l.delete_action_5(dir),
+                        (Black, Black) => l.delete_action_4(dir),
                     }
                 }
                 Right => {
                     self.rotate_right();
+                    self.color = Black;
                     self.right.as_mut().unwrap().color = Red;
 
-                    let l = self.left.as_mut().unwrap();
+                    let r = self.right.as_mut().unwrap();
+                    let rl = r.left.as_mut().unwrap();
 
-                    match (l.right_color(), l.left_color()) {
-                        (_, Red) => self.delete_action_6(dir),
-                        (Red, Black) => self.delete_action_5(dir),
-                        (Black, Black) => self.delete_action_4(dir),
+                    match (rl.right_color(), rl.left_color()) {
+                        (_, Red) => r.delete_action_6(dir),
+                        (Red, Black) => r.delete_action_5(dir),
+                        (Black, Black) => r.delete_action_4(dir),
                     }
                 }
             },
             Some(D4) => self.delete_action_4(dir),
             Some(D5) => self.delete_action_5(dir),
             Some(D6) => self.delete_action_6(dir),
+        }
+    }
+
+    fn delete_rightmost(&mut self) -> Option<(T, bool)> {
+        let (sibling, close, distant) = if let Some(l) = self.left.as_ref() {
+            (l.color, l.right_color(), l.left_color())
+        } else {
+            (Black, Black, Black)
+        };
+
+        let action = match (&self.left, self.color) {
+            (_, Red) | (Some(_), Black) => None,
+            (None, Black) => match (self.color, sibling, close, distant) {
+                (Black, Black, Black, Black) => Some(D2),
+                (Black, Red, Black, Black) => Some(D3),
+                (Red, Black, Black, Black) => Some(D4),
+                (_, Black, Red, Black) => Some(D5),
+                (_, Black, _, Red) => Some(D6),
+                _ => unreachable!(),
+            },
+        };
+
+        if let Some(right) = self.right.as_mut() {
+            if let Some((data, should_update)) = right.delete_rightmost() {
+                let should_update = if should_update {
+                    self.delete_action(action, Right)
+                } else {
+                    false
+                };
+
+                Some((data, should_update))
+            } else {
+                let right = mem::replace(&mut self.right, None).unwrap();
+                self.right = right.left;
+
+                let should_update = self.delete_action(action, Right);
+
+                Some((right.data, should_update))
+            }
+        } else {
+            None
         }
     }
 }
@@ -404,7 +449,7 @@ impl<T: Eq + Ord> Node<T> {
                     (Some(Red), Black, Black, Black) => Some(D4),
                     (Some(_), Black, Red, Black) => Some(D5),
                     (Some(_), Black, _, Red) => Some(D6),
-                    _ => todo!(),
+                    _ => unreachable!(),
                 },
             };
 
@@ -469,28 +514,42 @@ impl<T: Eq + Ord> Node<T> {
                             *node = Some(child)
                         }
                         (Some(mut l), Some(r)) => {
-                            if l.right.is_some() {
-                                let mut lr = &mut l.right;
-
-                                while lr.as_ref().unwrap().right.is_some() {
-                                    lr = &mut lr.as_mut().unwrap().right;
+                            if let Some((data, should_update)) = l.delete_rightmost() {
+                                if should_update {
+                                    curr_action = action
                                 }
 
-                                let lr = mem::replace(lr, None).unwrap();
-
-                                l.right = lr.left;
-
                                 let new_node = Node {
-                                    data: lr.data,
+                                    data,
                                     color,
                                     left: Some(l),
                                     right: Some(r),
                                 };
 
-                                *node = Some(Box::new(new_node));
+                                *node = Some(Box::new(new_node))
                             } else {
+                                let left_action = match (&l.left, l.color) {
+                                    (_, Red) | (Some(_), Black) => None,
+                                    (None, Black) => {
+                                        match (color, r.color, r.left_color(), r.right_color()) {
+                                            (Black, Black, Black, Black) => Some(D2),
+                                            (Black, Red, Black, Black) => Some(D3),
+                                            (Red, Black, Black, Black) => Some(D4),
+                                            (_, Black, Red, Black) => Some(D5),
+                                            (_, Black, _, Red) => Some(D6),
+                                            _ => unreachable!(),
+                                        }
+                                    }
+                                };
+
                                 l.right = Some(r);
                                 l.color = color;
+
+                                let should_update = l.delete_action(left_action, Left);
+
+                                if should_update {
+                                    curr_action = action
+                                }
 
                                 *node = Some(l)
                             }
@@ -716,6 +775,80 @@ mod tests {
         tree.check();
 
         tree.delete(&5);
+        tree.check();
+    }
+
+    #[test]
+    fn delete_chain() {
+        let mut tree = RedBlackTree::new();
+
+        tree.insert(5);
+        tree.insert(3);
+        tree.insert(10);
+        tree.insert(7);
+        tree.insert(15);
+        tree.check();
+
+        tree.delete(&5);
+        tree.check();
+    }
+
+    #[test]
+    fn delete_complex_rotate() {
+        let mut tree = RedBlackTree::new();
+
+        tree.insert(1);
+        tree.insert(2);
+        tree.insert(3);
+        tree.insert(4);
+        tree.insert(5);
+        tree.insert(6);
+        tree.insert(8);
+        tree.insert(9);
+        tree.insert(10);
+        tree.check();
+
+        tree.delete(&2);
+        tree.delete(&3);
+        tree.delete(&1);
+        tree.check();
+
+        let mut tree = RedBlackTree::new();
+
+        tree.insert(1);
+        tree.insert(2);
+        tree.insert(3);
+        tree.insert(4);
+        tree.insert(5);
+        tree.insert(10);
+        tree.insert(12);
+        tree.insert(13);
+        tree.insert(14);
+        tree.insert(9);
+        tree.check();
+
+        tree.delete(&2);
+        tree.delete(&3);
+        tree.delete(&1);
+        tree.check();
+
+        let mut tree = RedBlackTree::new();
+
+        tree.insert(1);
+        tree.insert(2);
+        tree.insert(3);
+        tree.insert(4);
+        tree.insert(7);
+        tree.insert(10);
+        tree.insert(12);
+        tree.insert(13);
+        tree.insert(14);
+        tree.insert(5);
+        tree.check();
+
+        tree.delete(&2);
+        tree.delete(&3);
+        tree.delete(&1);
         tree.check();
     }
 }

@@ -65,6 +65,21 @@ impl<T> Node<T> {
             right: None,
         }
     }
+
+    fn delete_rightmost(&mut self) -> Option<T> {
+        if let Some(right) = self.right.as_mut() {
+            if let Some(data) = right.delete_rightmost() {
+                Some(data)
+            } else {
+                let right = mem::replace(&mut self.right, None).unwrap();
+                self.right = right.left;
+
+                Some(right.data)
+            }
+        } else {
+            None
+        }
+    }
 }
 
 impl<T: Display> Display for Node<T> {
@@ -128,28 +143,24 @@ impl<T: Eq + Ord> Node<T> {
                         (None, None) => (),
                         (Some(child), None) | (None, Some(child)) => *node = Some(child),
                         (Some(mut l), Some(r)) => {
-                            if l.right.is_some() {
-                                let mut lr = &mut l.right;
+                            let data = l.delete_rightmost();
 
-                                while lr.as_ref().unwrap().right.is_some() {
-                                    lr = &mut lr.as_mut().unwrap().right;
-                                }
-
-                                let lr = mem::replace(lr, None).unwrap();
-
-                                l.right = lr.left;
-
+                            if let Some(data) = data {
                                 let new_node = Node {
-                                    data: lr.data,
+                                    data: data,
                                     left: Some(l),
                                     right: Some(r),
                                 };
 
-                                *node = Some(Box::new(new_node));
+                                *node = Some(Box::new(new_node))
                             } else {
-                                l.right = Some(r);
+                                let new_node = Node {
+                                    data: l.data,
+                                    left: l.left,
+                                    right: Some(r),
+                                };
 
-                                *node = Some(l)
+                                *node = Some(Box::new(new_node))
                             }
                         }
                     }
@@ -290,5 +301,24 @@ mod tests {
 
         assert!(!tree.search(&11));
         assert!(tree.search(&9));
+    }
+
+    #[test]
+    fn delete_chain() {
+        let mut tree = BinarySearchTree::new();
+        tree.insert(11);
+        tree.insert(12);
+        tree.insert(3);
+        tree.insert(5);
+        tree.insert(7);
+        tree.insert(9);
+        tree.insert(8);
+        tree.check();
+
+        tree.delete(&11);
+        tree.check();
+
+        assert!(tree.search(&8));
+        assert!(tree.search(&7));
     }
 }
