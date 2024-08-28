@@ -29,7 +29,7 @@ impl<T: Display> Display for RedBlackTree<T> {
 }
 
 impl<T: Eq + Ord> RedBlackTree<T> {
-    pub fn insert(&mut self, data: T) -> bool {
+    pub fn insert(&mut self, data: T) -> Option<T> {
         if let Some(node) = &mut self.node {
             let dir = match node.data.cmp(&data) {
                 Ordering::Less => Right,
@@ -42,7 +42,7 @@ impl<T: Eq + Ord> RedBlackTree<T> {
         } else {
             self.node = Some(Box::new(Node::new(data)));
 
-            true
+            None
         }
     }
 
@@ -50,11 +50,11 @@ impl<T: Eq + Ord> RedBlackTree<T> {
         Node::delete(&mut self.node, data, None, Black, Black, Black).1
     }
 
-    pub fn search(&self, data: &T) -> bool {
+    pub fn search(&self, data: &T) -> Option<()> {
         if let Some(node) = &self.node {
             node.search(data)
         } else {
-            false
+            None
         }
     }
 }
@@ -372,7 +372,7 @@ impl<T: Eq + Ord> Node<T> {
         parent: Option<Color>,
         parent_dir: Direction,
         uncle: Color,
-    ) -> (bool, Option<Insert>) {
+    ) -> (Option<T>, Option<Insert>) {
         let mut dir = Left;
 
         let curr_action = |dir| match (self.color, parent, uncle) {
@@ -399,7 +399,7 @@ impl<T: Eq + Ord> Node<T> {
         let r_color = self.right.as_ref().map(|r| r.color).unwrap_or(Black);
 
         let (inserted, action, curr_action) = match self.data.cmp(&data) {
-            Ordering::Equal => (false, None, I3),
+            Ordering::Equal => (Some(mem::replace(&mut self.data, data)), None, I3),
             Ordering::Greater => {
                 let curr_action = curr_action(Left);
                 if let Some(left) = &mut self.left {
@@ -408,7 +408,7 @@ impl<T: Eq + Ord> Node<T> {
                     (inserted, action, curr_action)
                 } else {
                     self.left = Some(Box::new(Node::new(data)));
-                    (true, Some(curr_action), curr_action)
+                    (None, Some(curr_action), curr_action)
                 }
             }
             Ordering::Less => {
@@ -421,7 +421,7 @@ impl<T: Eq + Ord> Node<T> {
                     (inserted, action, curr_action)
                 } else {
                     self.right = Some(Box::new(Node::new(data)));
-                    (true, Some(curr_action), curr_action)
+                    (None, Some(curr_action), curr_action)
                 }
             }
         };
@@ -564,21 +564,21 @@ impl<T: Eq + Ord> Node<T> {
         }
     }
 
-    fn search(&self, data: &T) -> bool {
+    fn search(&self, data: &T) -> Option<()> {
         match self.data.cmp(data) {
-            Ordering::Equal => true,
+            Ordering::Equal => Some(()),
             Ordering::Greater => {
                 if let Some(left) = &self.left {
                     left.search(data)
                 } else {
-                    false
+                    None
                 }
             }
             Ordering::Less => {
                 if let Some(right) = &self.right {
                     right.search(data)
                 } else {
-                    false
+                    None
                 }
             }
         }
@@ -641,7 +641,7 @@ mod tests {
         tree.insert(7);
         tree.insert(3);
 
-        assert!(tree.search(&5));
+        assert_eq!(tree.search(&5), Some(()));
 
         tree.check();
 
@@ -658,7 +658,7 @@ mod tests {
         tree.insert(7);
         tree.insert(9);
 
-        assert!(tree.search(&9));
+        assert_eq!(tree.search(&9), Some(()));
 
         tree.check();
 
@@ -668,7 +668,7 @@ mod tests {
         tree.insert(7);
         tree.insert(6);
 
-        assert!(tree.search(&6));
+        assert_eq!(tree.search(&6), Some(()));
 
         tree.check();
     }

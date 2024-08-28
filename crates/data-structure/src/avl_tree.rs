@@ -29,12 +29,12 @@ impl<T: Display> Display for AVLTree<T> {
 }
 
 impl<T: Eq + Ord> AVLTree<T> {
-    pub fn insert(&mut self, data: T) -> bool {
+    pub fn insert(&mut self, data: T) -> Option<T> {
         if let Some(node) = &mut self.node {
-            node.insert(data).is_some()
+            node.insert(data).1
         } else {
             self.node = Some(Box::new(Node::new(data)));
-            true
+            None
         }
     }
 
@@ -42,11 +42,11 @@ impl<T: Eq + Ord> AVLTree<T> {
         Node::delete(&mut self.node, data).map(|(data, _)| data)
     }
 
-    pub fn search(&self, data: &T) -> bool {
+    pub fn search(&self, data: &T) -> Option<()> {
         if let Some(node) = &self.node {
             node.search(data)
         } else {
-            false
+            None
         }
     }
 }
@@ -254,17 +254,17 @@ enum Direction {
 use Direction::*;
 
 impl<T: Eq + Ord> Node<T> {
-    fn insert(&mut self, data: T) -> Option<(Balance, bool)> {
+    fn insert(&mut self, data: T) -> (Option<(Balance, bool)>, Option<T>) {
         let mut dir = Left;
 
-        let (child_balance, need_update) = match self.data.cmp(&data) {
-            Ordering::Equal => return None,
+        let (child, ret_data) = match self.data.cmp(&data) {
+            Ordering::Equal => return (None, Some(mem::replace(&mut self.data, data))),
             Ordering::Greater => {
                 if let Some(left) = &mut self.left {
                     left.insert(data)
                 } else {
                     self.left = Some(Box::new(Node::new(data)));
-                    Some((LHeavy, true))
+                    (Some((LHeavy, true)), None)
                 }
             }
             Ordering::Less => {
@@ -274,12 +274,16 @@ impl<T: Eq + Ord> Node<T> {
                 } else {
                     self.right = Some(Box::new(Node::new(data)));
                     dir = Right;
-                    Some((RHeavy, true))
+                    (Some((RHeavy, true)), None)
                 }
             }
-        }?;
+        };
 
-        if need_update {
+        let Some((child_balance, need_update)) = child else {
+            return (None, ret_data);
+        };
+
+        let balance = if need_update {
             match (dir, self.balance) {
                 (Left, RHeavy) => {
                     self.balance = Balanced;
@@ -320,7 +324,9 @@ impl<T: Eq + Ord> Node<T> {
             }
         } else {
             Some((self.balance, false))
-        }
+        };
+
+        (balance, ret_data)
     }
 
     fn delete(node: &mut Option<Box<Node<T>>>, data: &T) -> Option<(T, bool)> {
@@ -433,21 +439,21 @@ impl<T: Eq + Ord> Node<T> {
         Some((data, should_update))
     }
 
-    fn search(&self, data: &T) -> bool {
+    fn search(&self, data: &T) -> Option<()> {
         match self.data.cmp(data) {
-            Ordering::Equal => true,
+            Ordering::Equal => Some(()),
             Ordering::Greater => {
                 if let Some(left) = &self.left {
                     left.search(data)
                 } else {
-                    false
+                    None
                 }
             }
             Ordering::Less => {
                 if let Some(right) = &self.right {
                     right.search(data)
                 } else {
-                    false
+                    None
                 }
             }
         }

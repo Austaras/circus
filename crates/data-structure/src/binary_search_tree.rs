@@ -29,12 +29,12 @@ impl<T: Display> Display for BinarySearchTree<T> {
 }
 
 impl<T: Eq + Ord> BinarySearchTree<T> {
-    pub fn insert(&mut self, data: T) -> bool {
+    pub fn insert(&mut self, data: T) -> Option<T> {
         if let Some(node) = &mut self.node {
             node.insert(data)
         } else {
             self.node = Some(Box::new(Node::new(data)));
-            true
+            None
         }
     }
 
@@ -42,11 +42,11 @@ impl<T: Eq + Ord> BinarySearchTree<T> {
         Node::delete(&mut self.node, data)
     }
 
-    pub fn search(&self, data: &T) -> bool {
+    pub fn search(&self, data: &T) -> Option<()> {
         if let Some(node) = &self.node {
             node.search(data)
         } else {
-            false
+            None
         }
     }
 }
@@ -109,15 +109,15 @@ impl<T: Display> Display for Node<T> {
 }
 
 impl<T: Eq + Ord> Node<T> {
-    fn insert(&mut self, data: T) -> bool {
+    fn insert(&mut self, data: T) -> Option<T> {
         match self.data.cmp(&data) {
-            Ordering::Equal => false,
+            Ordering::Equal => Some(mem::replace(&mut self.data, data)),
             Ordering::Greater => {
                 if let Some(left) = &mut self.left {
                     left.insert(data)
                 } else {
                     self.left = Some(Box::new(Node::new(data)));
-                    true
+                    None
                 }
             }
             Ordering::Less => {
@@ -125,7 +125,7 @@ impl<T: Eq + Ord> Node<T> {
                     right.insert(data)
                 } else {
                     self.right = Some(Box::new(Node::new(data)));
-                    true
+                    None
                 }
             }
         }
@@ -173,21 +173,21 @@ impl<T: Eq + Ord> Node<T> {
         }
     }
 
-    fn search(&self, data: &T) -> bool {
+    fn search(&self, data: &T) -> Option<()> {
         match self.data.cmp(data) {
-            Ordering::Equal => true,
+            Ordering::Equal => Some(()),
             Ordering::Greater => {
                 if let Some(left) = &self.left {
                     left.search(data)
                 } else {
-                    false
+                    None
                 }
             }
             Ordering::Less => {
                 if let Some(right) = &self.right {
                     right.search(data)
                 } else {
-                    false
+                    None
                 }
             }
         }
@@ -232,8 +232,8 @@ mod tests {
 
         tree.check();
 
-        assert!(tree.search(&5));
-        assert!(tree.search(&7));
+        assert_eq!(tree.search(&5), Some(()));
+        assert_eq!(tree.search(&7), Some(()));
     }
 
     #[test]
@@ -247,8 +247,8 @@ mod tests {
         tree.delete(&3);
         tree.check();
 
-        assert!(!tree.search(&3));
-        assert!(tree.search(&7));
+        assert_eq!(tree.search(&3), None);
+        assert_eq!(tree.search(&7), Some(()));
     }
 
     #[test]
@@ -263,8 +263,8 @@ mod tests {
         tree.delete(&5);
         tree.check();
 
-        assert!(!tree.search(&5));
-        assert!(tree.search(&6));
+        assert_eq!(tree.search(&5), None);
+        assert_eq!(tree.search(&6), Some(()));
     }
 
     #[test]
@@ -278,8 +278,8 @@ mod tests {
         tree.delete(&5);
         tree.check();
 
-        assert!(!tree.search(&5));
-        assert!(tree.search(&7));
+        assert_eq!(tree.search(&5), None);
+        assert_eq!(tree.search(&7), Some(()));
     }
 
     #[test]
@@ -299,8 +299,8 @@ mod tests {
         tree.delete(&11);
         tree.check();
 
-        assert!(!tree.search(&11));
-        assert!(tree.search(&9));
+        assert_eq!(tree.search(&11), None);
+        assert_eq!(tree.search(&9), Some(()));
     }
 
     #[test]
@@ -318,7 +318,7 @@ mod tests {
         tree.delete(&11);
         tree.check();
 
-        assert!(tree.search(&8));
-        assert!(tree.search(&7));
+        assert_eq!(tree.search(&8), Some(()));
+        assert_eq!(tree.search(&7), Some(()));
     }
 }
