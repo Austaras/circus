@@ -1,4 +1,8 @@
-use std::{cmp::Ordering, fmt::Display, mem};
+use std::{
+    cmp::Ordering,
+    fmt::{Display, Write},
+    mem,
+};
 
 use arrayvec::ArrayVec;
 
@@ -34,6 +38,58 @@ where
     [(); M + 1]:,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_char('[')?;
+
+        if self.children.is_empty() {
+            for (idx, data) in self.data.iter().enumerate() {
+                data.fmt(f)?;
+
+                if idx != self.data.len() - 1 {
+                    f.write_str(",\n")?;
+                }
+            }
+        } else {
+            for (idx, data) in self.data.iter().enumerate() {
+                self.children[idx].fmt(f)?;
+
+                f.write_str(", ")?;
+                data.fmt(f)?;
+                f.write_char(',')?;
+            }
+
+            f.write_char(' ')?;
+
+            self.children.last().unwrap().fmt(f)?;
+        }
+
+        f.write_char(']')?;
+
+        Ok(())
+    }
+}
+
+impl<T: Display, const M: usize> Display for Node<T, M>
+where
+    [(); M + 1]:,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Node::Internal(intl) => intl.fmt(f)?,
+            Node::Leaf(l) => {
+                f.write_char('[')?;
+
+                for (idx, data) in l.iter().enumerate() {
+                    data.fmt(f)?;
+
+                    if idx != l.len() - 1 {
+                        f.write_str(", ")?;
+                    }
+                }
+
+                f.write_char(']')?;
+            }
+        }
+
         Ok(())
     }
 }
@@ -69,12 +125,8 @@ fn split<T, const M: usize>(
             let mid = mid + 1;
             let mut right = ArrayVec::new();
 
-            if mid + 1 < arr.len() {
-                right.extend(arr.drain(mid + 1..));
-                right.insert(to_insert - mid - 1, data);
-            } else {
-                right.push(data)
-            }
+            right.extend(arr.drain(mid..));
+            right.insert(to_insert - mid, data);
 
             let mid = arr.pop().unwrap();
 
@@ -90,7 +142,7 @@ fn split_children<T, const M: usize>(
     to_insert: usize,
     data: T,
 ) -> (ArrayVec<T, M>, ArrayVec<T, M>) {
-    let mid = arr.len() / 2;
+    let mid = (arr.len() - 1) / 2;
     match to_insert.cmp(&mid) {
         Ordering::Less => {
             let mid = mid - 1;
@@ -115,12 +167,8 @@ fn split_children<T, const M: usize>(
             let mid = mid + 1;
             let mut right = ArrayVec::new();
 
-            if mid <= arr.len() {
-                right.extend(arr.drain(mid..));
-                right.insert(to_insert - mid, data);
-            } else {
-                right.push(data)
-            }
+            right.extend(arr.drain(mid..));
+            right.insert(to_insert - mid, data);
 
             let left = arr;
 
@@ -147,12 +195,12 @@ where
     }
 
     fn split(&mut self, to_insert: usize, data: T, child: Option<Box<Node<T, M>>>) {
-        let arr = mem::replace(&mut self.data, ArrayVec::new());
+        let arr = self.data.take();
         let (left, new_data, right) = split(arr, to_insert, data);
         self.data.push(new_data);
 
         let (left, right) = if !self.children.is_empty() {
-            let mut children = mem::replace(&mut self.children, ArrayVec::new());
+            let mut children = self.children.take();
             let (left_children, right_children) = if let Some(child) = child {
                 split_children(children, to_insert + 1, child)
             } else {
@@ -181,7 +229,7 @@ where
         };
 
         self.children.push(Box::new(left));
-        self.children.push(Box::new(right))
+        self.children.push(Box::new(right));
     }
 
     pub fn insert(&mut self, data: T) -> Option<T> {
@@ -214,7 +262,111 @@ where
     }
 
     pub fn delete(&mut self, data: &T) -> Option<T> {
-        None
+        let data = match self.data.binary_search(data) {
+            Ok(i) => {
+                if self.children.is_empty() {
+                    Some(self.data.remove(i))
+                } else if self.children[i].len() > M / 2 {
+                    let (data, action) = self.children[i].delete_tail();
+                    let data = mem::replace(&mut self.data[i], data);
+
+                    if action {
+                        self.rotate(i);
+                    }
+
+                    Some(data)
+                } else if self.children[i + 1].len() > M / 2 {
+                    let (data, action) = self.children[i + 1].delete_head();
+                    let data = mem::replace(&mut self.data[i], data);
+
+                    if action {
+                        self.rotate(i + 1);
+                    }
+
+                    Some(data)
+                } else {
+                    let data = self.data.remove(i);
+                    let to_merge = self.children.remove(i + 1);
+                    self.children[i].merge(*to_merge);
+
+                    Some(data)
+                }
+            }
+            Err(i) => {
+                if self.children.is_empty() {
+                    None
+                } else {
+                    let (data, action) = self.children[i].delete(data);
+
+                    if action {
+                        self.rotate(i);
+                    }
+
+                    data
+                }
+            }
+        };
+
+        if self.data.is_empty() && !self.children.is_empty() {
+            let mut children = self.children.take();
+
+            match *(children.remove(0)) {
+                Node::Internal(intl) => *self = intl,
+                Node::Leaf(l) => self.data = l,
+            }
+        }
+
+        data
+    }
+
+    fn rotate(&mut self, i: usize) -> bool {
+        if i > 0 && self.children[i - 1].len() > M / 2 {
+            let (data, child) = match &mut *self.children[i - 1] {
+                Node::Internal(intl) => (intl.data.pop().unwrap(), intl.children.pop()),
+                Node::Leaf(l) => (l.pop().unwrap(), None),
+            };
+            let data = mem::replace(&mut self.data[i - 1], data);
+
+            match (&mut *self.children[i], child) {
+                (Node::Internal(_), None) | (Node::Leaf(_), Some(_)) => unreachable!(),
+                (Node::Internal(intl), Some(child)) => {
+                    intl.data.insert(0, data);
+                    intl.children.insert(0, child)
+                }
+                (Node::Leaf(l), None) => l.insert(0, data),
+            };
+
+            false
+        } else if i < self.children.len() - 1 && self.children[i + 1].len() > M / 2 {
+            let (data, child) = match &mut *self.children[i + 1] {
+                Node::Internal(intl) => (intl.data.remove(0), Some(intl.children.remove(0))),
+                Node::Leaf(l) => (l.remove(0), None),
+            };
+            let data = mem::replace(&mut self.data[i], data);
+
+            match (&mut *self.children[i], child) {
+                (Node::Internal(_), None) | (Node::Leaf(_), Some(_)) => unreachable!(),
+                (Node::Internal(intl), Some(child)) => {
+                    intl.data.push(data);
+                    intl.children.push(child)
+                }
+                (Node::Leaf(l), None) => l.push(data),
+            };
+
+            false
+        } else {
+            let data = self.data.remove(i - 1);
+
+            if i > 0 {
+                let child = self.children.remove(i);
+                self.children[i - 1].merge_with_data(data, *child);
+            } else {
+                let child = self.children.remove(i + 1);
+                self.children[i].merge_with_data(data, *child);
+            }
+
+            self.data.len() < M / 2
+        }
     }
 }
 
@@ -222,6 +374,13 @@ impl<T: Eq + Ord, const M: usize> Node<T, M>
 where
     [(); M + 1]:,
 {
+    fn len(&self) -> usize {
+        match self {
+            Node::Internal(intl) => intl.data.len(),
+            Node::Leaf(l) => l.len(),
+        }
+    }
+
     fn search(&self, data: &T) -> Option<()> {
         match self {
             Node::Internal(intl) => match intl.data.binary_search(data) {
@@ -244,10 +403,10 @@ where
 
                     let up = if let Some((data, child)) = up {
                         if intl.data.is_full() {
-                            let arr = mem::replace(&mut intl.data, ArrayVec::new());
+                            let arr = intl.data.take();
                             let (left, new_data, right) = split(arr, i, data);
 
-                            let children = mem::replace(&mut intl.children, ArrayVec::new());
+                            let children = intl.children.take();
                             let (left_children, right_children) =
                                 split_children(children, i + 1, child);
 
@@ -280,7 +439,7 @@ where
                 Ok(i) => (Some(mem::replace(&mut l[i], data)), None),
                 Err(i) => {
                     let up = if l.is_full() {
-                        let arr = mem::replace(l, ArrayVec::new());
+                        let arr = l.take();
                         let (left, mid, right) = split(arr, i, data);
 
                         *l = left;
@@ -294,6 +453,96 @@ where
 
                     (None, up)
                 }
+            },
+        }
+    }
+
+    fn merge(&mut self, other: Self) {
+        match (self, other) {
+            (Node::Internal(l), Node::Internal(mut r)) => {
+                l.data.extend(r.data);
+                let last = l.children.len() - 1;
+                l.children.extend(r.children.drain(1..));
+                let first = r.children.remove(0);
+
+                l.children[last].merge(*first);
+            }
+            (Node::Leaf(l), Node::Leaf(r)) => l.extend(r),
+            (Node::Internal(_), Node::Leaf(_)) | (Node::Leaf(_), Node::Internal(_)) => {
+                unreachable!()
+            }
+        }
+    }
+
+    fn merge_with_data(&mut self, data: T, other: Self) {
+        match (self, other) {
+            (Node::Internal(l), Node::Internal(r)) => {
+                l.data.push(data);
+                l.data.extend(r.data);
+                l.children.extend(r.children);
+            }
+            (Node::Leaf(l), Node::Leaf(r)) => {
+                l.push(data);
+                l.extend(r)
+            }
+            (Node::Internal(_), Node::Leaf(_)) | (Node::Leaf(_), Node::Internal(_)) => {
+                unreachable!()
+            }
+        }
+    }
+
+    fn delete_tail(&mut self) -> (T, bool) {
+        match self {
+            Node::Internal(intl) => intl.children.last_mut().unwrap().delete_tail(),
+            Node::Leaf(l) => (l.pop().unwrap(), l.len() < M / 2),
+        }
+    }
+
+    fn delete_head(&mut self) -> (T, bool) {
+        match self {
+            Node::Internal(intl) => intl.children[0].delete_head(),
+            Node::Leaf(l) => (l.remove(0), l.len() < M / 2),
+        }
+    }
+
+    fn delete(&mut self, data: &T) -> (Option<T>, bool) {
+        match self {
+            Node::Internal(intl) => match intl.data.binary_search(data) {
+                Ok(i) => {
+                    if intl.children[i].len() > M / 2 {
+                        let (data, action) = intl.children[i].delete_tail();
+                        let data = mem::replace(&mut intl.data[i], data);
+                        let action = if action { intl.rotate(i) } else { false };
+
+                        (Some(data), action)
+                    } else if intl.children[i + 1].len() > M / 2 {
+                        let (data, action) = intl.children[i + 1].delete_head();
+                        let data = mem::replace(&mut intl.data[i], data);
+                        let action = if action { intl.rotate(i + 1) } else { false };
+
+                        (Some(data), action)
+                    } else {
+                        let data = intl.data.remove(i);
+                        let to_merge = intl.children.remove(i + 1);
+                        intl.children[i].merge(*to_merge);
+
+                        (Some(data), intl.data.len() < M / 2)
+                    }
+                }
+                Err(i) => {
+                    let (data, action) = intl.children[i].delete(data);
+
+                    let action = if action { intl.rotate(i) } else { false };
+
+                    (data, action)
+                }
+            },
+            Node::Leaf(l) => match l.binary_search(data) {
+                Ok(i) => {
+                    let data = l.remove(i);
+                    (Some(data), l.len() < M / 2)
+                }
+                Err(_) => (None, false),
             },
         }
     }
@@ -341,6 +590,7 @@ mod tests {
                     }
                 }
                 Node::Leaf(l) => {
+                    assert!(l.len() >= M / 2);
                     for i in 0..l.len() - 1 {
                         assert!(l[i] < l[i + 1])
                     }
@@ -377,6 +627,10 @@ mod tests {
 
                     self.children[i].check(min, max)
                 }
+            }
+
+            if self.data.len() == 1 && !self.children.is_empty() {
+                self.children[0].check(None, Some(&self.data[0]));
             }
 
             if let Some(last) = self.children.last() {
@@ -468,5 +722,42 @@ mod tests {
         }
 
         assert_eq!(tree.search(&9), Some(()));
+    }
+
+    #[test]
+    fn delete_root() {
+        let mut tree = BTree::<_, 2>::new();
+
+        for i in 0..15 {
+            tree.insert(i);
+            tree.check();
+        }
+
+        tree.delete(&7);
+        tree.check();
+
+        assert_eq!(tree.search(&7), None);
+    }
+
+    #[test]
+    fn delete_complex() {
+        let mut tree = BTree::<_, 5>::new();
+
+        for i in 0..26 {
+            tree.insert(i);
+            tree.check();
+        }
+
+        tree.delete(&20);
+        tree.check();
+
+        tree.delete(&14);
+        tree.check();
+
+        tree.delete(&19);
+        tree.check();
+
+        tree.delete(&4);
+        tree.check();
     }
 }
