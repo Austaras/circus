@@ -9,7 +9,6 @@ where
     data: ArrayVec<T, M>,
     children: ArrayVec<Box<Node<T, M>>, { M + 1 }>,
 }
-
 enum Node<T, const M: usize>
 where
     [(); M + 1]:,
@@ -86,6 +85,50 @@ fn split<T, const M: usize>(
     }
 }
 
+fn split_children<T, const M: usize>(
+    mut arr: ArrayVec<T, M>,
+    to_insert: usize,
+    data: T,
+) -> (ArrayVec<T, M>, ArrayVec<T, M>) {
+    let mid = arr.len() / 2;
+    match to_insert.cmp(&mid) {
+        Ordering::Less => {
+            let mid = mid - 1;
+            let mut right = ArrayVec::new();
+            right.extend(arr.drain(mid..));
+
+            let mut left = arr;
+            left.insert(to_insert, data);
+
+            (left, right)
+        }
+        Ordering::Equal => {
+            let mut right = ArrayVec::new();
+            right.extend(arr.drain(mid..));
+
+            let mut left = arr;
+            left.push(data);
+
+            (left, right)
+        }
+        Ordering::Greater => {
+            let mid = mid + 1;
+            let mut right = ArrayVec::new();
+
+            if mid <= arr.len() {
+                right.extend(arr.drain(mid..));
+                right.insert(to_insert - mid, data);
+            } else {
+                right.push(data)
+            }
+
+            let left = arr;
+
+            (left, right)
+        }
+    }
+}
+
 impl<T: Eq + Ord, const M: usize> BTree<T, M>
 where
     [(); M + 1]:,
@@ -104,32 +147,29 @@ where
     }
 
     fn split(&mut self, to_insert: usize, data: T, child: Option<Box<Node<T, M>>>) {
-        let mid = self.data.len() / 2;
-
         let arr = mem::replace(&mut self.data, ArrayVec::new());
         let (left, new_data, right) = split(arr, to_insert, data);
         self.data.push(new_data);
 
         let (left, right) = if !self.children.is_empty() {
-            let mut right_children = ArrayVec::new();
-            right_children.extend(self.children.drain(mid + 1..));
-            let mut left_children = mem::replace(&mut self.children, ArrayVec::new());
+            let mut children = mem::replace(&mut self.children, ArrayVec::new());
+            let (left_children, right_children) = if let Some(child) = child {
+                split_children(children, to_insert + 1, child)
+            } else {
+                let mut right = ArrayVec::new();
 
-            if let Some(child) = child {
-                if to_insert < mid {
-                    left_children.insert(to_insert + 1, child)
-                } else {
-                    right_children.insert(to_insert - mid, child)
-                }
-            }
+                right.extend(children.drain(children.len() / 2 + 1..));
 
-            let right = Node::Internal(BTree {
-                data: right,
-                children: right_children,
-            });
+                (children, right)
+            };
+
             let left = Node::Internal(BTree {
                 data: left,
                 children: left_children,
+            });
+            let right = Node::Internal(BTree {
+                data: right,
+                children: right_children,
             });
 
             (left, right)
@@ -204,21 +244,12 @@ where
 
                     let up = if let Some((data, child)) = up {
                         if intl.data.is_full() {
-                            let mid = intl.data.len() / 2;
-
                             let arr = mem::replace(&mut intl.data, ArrayVec::new());
                             let (left, new_data, right) = split(arr, i, data);
 
-                            let mut right_children = ArrayVec::new();
-                            right_children.extend(intl.children.drain(mid + 1..));
-                            let mut left_children =
-                                mem::replace(&mut intl.children, ArrayVec::new());
-
-                            if i < mid {
-                                left_children.insert(i + 1, child)
-                            } else {
-                                right_children.insert(i - mid, child)
-                            }
+                            let children = mem::replace(&mut intl.children, ArrayVec::new());
+                            let (left_children, right_children) =
+                                split_children(children, i + 1, child);
 
                             let right = Box::new(Node::Internal(BTree {
                                 data: right,
@@ -279,6 +310,7 @@ mod tests {
         fn check(&self, min: Option<&T>, max: Option<&T>) {
             match self {
                 Node::Internal(intl) => {
+                    assert_eq!(intl.data.len() + 1, intl.children.len());
                     assert!(intl.data.len() >= M / 2);
 
                     for i in 0..intl.data.len() - 1 {
@@ -330,6 +362,8 @@ mod tests {
         [(); M + 1]:,
     {
         fn check(&self) {
+            assert!(self.children.len() == 0 || self.children.len() == self.data.len() + 1);
+
             for i in 0..self.data.len() - 1 {
                 assert!(self.data[i] < self.data[i + 1]);
 
@@ -420,6 +454,15 @@ mod tests {
         let mut tree = BTree::<_, 2>::new();
 
         for i in 0..32 {
+            tree.insert(i);
+            tree.check();
+        }
+
+        assert_eq!(tree.search(&9), Some(()));
+
+        let mut tree = BTree::<_, 2>::new();
+
+        for i in (0..32).rev() {
             tree.insert(i);
             tree.check();
         }
