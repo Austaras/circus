@@ -1,3 +1,5 @@
+#![feature(generic_const_exprs)]
+
 pub mod binary_heap;
 pub mod binary_search_tree;
 

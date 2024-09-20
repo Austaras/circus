@@ -2,22 +2,26 @@ use std::{cmp::Ordering, fmt::Display, mem};
 
 use arrayvec::ArrayVec;
 
-pub struct BTree<T, const M: usize> {
+pub struct BTree<T, const M: usize>
+where
+    [(); M + 1]:,
+{
     data: ArrayVec<T, M>,
-    children: ArrayVec<Box<Node<T, M>>, M>,
+    children: ArrayVec<Box<Node<T, M>>, { M + 1 }>,
 }
 
-struct Internal<T, const M: usize> {
-    data: ArrayVec<T, M>,
-    children: ArrayVec<Box<Node<T, M>>, M>,
-}
-
-enum Node<T, const M: usize> {
-    Internal(Internal<T, M>),
+enum Node<T, const M: usize>
+where
+    [(); M + 1]:,
+{
+    Internal(BTree<T, M>),
     Leaf(ArrayVec<T, M>),
 }
 
-impl<T, const M: usize> BTree<T, M> {
+impl<T, const M: usize> BTree<T, M>
+where
+    [(); M + 1]:,
+{
     pub fn new() -> Self {
         BTree {
             data: ArrayVec::new(),
@@ -26,7 +30,10 @@ impl<T, const M: usize> BTree<T, M> {
     }
 }
 
-impl<T: Display, const M: usize> Display for BTree<T, M> {
+impl<T: Display, const M: usize> Display for BTree<T, M>
+where
+    [(); M + 1]:,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
@@ -62,8 +69,13 @@ fn split<T, const M: usize>(
         Ordering::Greater => {
             let mid = mid + 1;
             let mut right = ArrayVec::new();
-            right.extend(arr.drain(mid + 1..));
-            right.insert(to_insert - mid - 1, data);
+
+            if mid + 1 < arr.len() {
+                right.extend(arr.drain(mid + 1..));
+                right.insert(to_insert - mid - 1, data);
+            } else {
+                right.push(data)
+            }
 
             let mid = arr.pop().unwrap();
 
@@ -74,12 +86,15 @@ fn split<T, const M: usize>(
     }
 }
 
-impl<T: Eq + Ord, const M: usize> BTree<T, M> {
+impl<T: Eq + Ord, const M: usize> BTree<T, M>
+where
+    [(); M + 1]:,
+{
     pub fn search(&self, data: &T) -> Option<()> {
         match self.data.binary_search(data) {
             Ok(_) => Some(()),
             Err(i) => {
-                if self.children.len() > i {
+                if self.children.len() > 0 {
                     self.children[i].search(data)
                 } else {
                     None
@@ -95,7 +110,7 @@ impl<T: Eq + Ord, const M: usize> BTree<T, M> {
         let (left, new_data, right) = split(arr, to_insert, data);
         self.data.push(new_data);
 
-        let (left, right) = if self.children.len() > 0 {
+        let (left, right) = if !self.children.is_empty() {
             let mut right_children = ArrayVec::new();
             right_children.extend(self.children.drain(mid + 1..));
             let mut left_children = mem::replace(&mut self.children, ArrayVec::new());
@@ -108,11 +123,11 @@ impl<T: Eq + Ord, const M: usize> BTree<T, M> {
                 }
             }
 
-            let right = Node::Internal(Internal {
+            let right = Node::Internal(BTree {
                 data: right,
                 children: right_children,
             });
-            let left = Node::Internal(Internal {
+            let left = Node::Internal(BTree {
                 data: left,
                 children: left_children,
             });
@@ -133,7 +148,7 @@ impl<T: Eq + Ord, const M: usize> BTree<T, M> {
         match self.data.binary_search(&data) {
             Ok(i) => Some(mem::replace(&mut self.data[i], data)),
             Err(i) => {
-                if self.children.len() > i {
+                if !self.children.is_empty() {
                     let (ret, up) = self.children[i].insert(data);
                     if let Some((data, child)) = up {
                         if self.data.is_full() {
@@ -163,7 +178,10 @@ impl<T: Eq + Ord, const M: usize> BTree<T, M> {
     }
 }
 
-impl<T: Eq + Ord, const M: usize> Node<T, M> {
+impl<T: Eq + Ord, const M: usize> Node<T, M>
+where
+    [(); M + 1]:,
+{
     fn search(&self, data: &T) -> Option<()> {
         match self {
             Node::Internal(intl) => match intl.data.binary_search(data) {
@@ -179,7 +197,54 @@ impl<T: Eq + Ord, const M: usize> Node<T, M> {
 
     fn insert(&mut self, data: T) -> (Option<T>, Option<(T, Box<Node<T, M>>)>) {
         match self {
-            Node::Internal(_) => todo!(),
+            Node::Internal(intl) => match intl.data.binary_search(&data) {
+                Ok(i) => (Some(mem::replace(&mut intl.data[i], data)), None),
+                Err(i) => {
+                    let (ret, up) = intl.children[i].insert(data);
+
+                    let up = if let Some((data, child)) = up {
+                        if intl.data.is_full() {
+                            let mid = intl.data.len() / 2;
+
+                            let arr = mem::replace(&mut intl.data, ArrayVec::new());
+                            let (left, new_data, right) = split(arr, i, data);
+
+                            let mut right_children = ArrayVec::new();
+                            right_children.extend(intl.children.drain(mid + 1..));
+                            let mut left_children =
+                                mem::replace(&mut intl.children, ArrayVec::new());
+
+                            if i < mid {
+                                left_children.insert(i + 1, child)
+                            } else {
+                                right_children.insert(i - mid, child)
+                            }
+
+                            let right = Box::new(Node::Internal(BTree {
+                                data: right,
+                                children: right_children,
+                            }));
+                            let left = BTree {
+                                data: left,
+                                children: left_children,
+                            };
+
+                            *intl = left;
+
+                            Some((new_data, right))
+                        } else {
+                            intl.data.insert(i, data);
+                            intl.children.insert(i + 1, child);
+
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    (ret, up)
+                }
+            },
             Node::Leaf(l) => match l.binary_search(&data) {
                 Ok(i) => (Some(mem::replace(&mut l[i], data)), None),
                 Err(i) => {
@@ -207,11 +272,14 @@ impl<T: Eq + Ord, const M: usize> Node<T, M> {
 mod tests {
     use super::{BTree, Node};
 
-    impl<T: Eq + Ord, const M: usize> Node<T, M> {
+    impl<T: Eq + Ord, const M: usize> Node<T, M>
+    where
+        [(); M + 1]:,
+    {
         fn check(&self, min: Option<&T>, max: Option<&T>) {
             match self {
                 Node::Internal(intl) => {
-                    assert!(intl.data.len() > M / 2);
+                    assert!(intl.data.len() >= M / 2);
 
                     for i in 0..intl.data.len() - 1 {
                         assert!(intl.data[i] < intl.data[i + 1]);
@@ -231,6 +299,14 @@ mod tests {
                     if let Some(last) = intl.children.last() {
                         last.check(intl.data.last(), None)
                     }
+
+                    if let Some(min) = min {
+                        assert!(min < &intl.data[0])
+                    }
+
+                    if let Some(max) = max {
+                        assert!(max > intl.data.last().unwrap())
+                    }
                 }
                 Node::Leaf(l) => {
                     for i in 0..l.len() - 1 {
@@ -249,12 +325,15 @@ mod tests {
         }
     }
 
-    impl<T: Eq + Ord, const M: usize> BTree<T, M> {
+    impl<T: Eq + Ord, const M: usize> BTree<T, M>
+    where
+        [(); M + 1]:,
+    {
         fn check(&self) {
             for i in 0..self.data.len() - 1 {
                 assert!(self.data[i] < self.data[i + 1]);
 
-                if self.children.len() > i {
+                if !self.children.is_empty() {
                     let min = if i == 0 {
                         None
                     } else {
@@ -332,6 +411,18 @@ mod tests {
         tree.insert(9);
 
         tree.check();
+
+        assert_eq!(tree.search(&9), Some(()));
+    }
+
+    #[test]
+    fn many_split() {
+        let mut tree = BTree::<_, 2>::new();
+
+        for i in 0..32 {
+            tree.insert(i);
+            tree.check();
+        }
 
         assert_eq!(tree.search(&9), Some(()));
     }
