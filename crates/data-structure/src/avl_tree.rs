@@ -77,7 +77,7 @@ struct Node<T> {
 }
 
 impl<T> Node<T> {
-    pub fn new(data: T) -> Self {
+    fn new(data: T) -> Self {
         Self {
             data,
             left: None,
