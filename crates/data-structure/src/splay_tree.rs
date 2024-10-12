@@ -42,17 +42,11 @@ impl<T: Eq + Ord> SplayTree<T> {
             let (ret, (dir1, dir2)) = node.insert(data);
 
             match (dir1, dir2) {
+                (None, None) => (),
                 (None, Some(Left)) => node.rotate_right(),
                 (None, Some(Right)) => node.rotate_left(),
-                (None, None) | (Some(_), None) => unreachable!(),
-                (Some(dir1), Some(dir2)) => {
-                    node.rotate(dir1, dir2);
-
-                    match dir2 {
-                        Left => node.rotate_right(),
-                        Right => node.rotate_left(),
-                    }
-                }
+                (Some(_), None) => unreachable!(),
+                (Some(dir1), Some(dir2)) => node.rotate(dir1, dir2),
             }
 
             ret
@@ -250,5 +244,21 @@ mod tests {
         tree.insert(0);
 
         tree.check(&0);
+    }
+
+    #[test]
+    fn basic_insert_2() {
+        let mut tree = SplayTree::new();
+        tree.insert(5);
+        tree.insert(3);
+        tree.insert(11);
+        tree.insert(8);
+        tree.insert(12);
+        tree.insert(7);
+        tree.insert(10);
+        tree.insert(9);
+        tree.insert(12);
+
+        tree.check(&12);
     }
 }
