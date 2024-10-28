@@ -61,8 +61,8 @@ impl<T: Eq + Ord> SplayTree<T> {
         None
     }
 
-    pub fn search(&mut self, data: &T) -> Option<()> {
-        if let Some(node) = &mut self.node {
+    pub fn search(&self, data: &T) -> Option<()> {
+        if let Some(node) = &self.node {
             None
         } else {
             None

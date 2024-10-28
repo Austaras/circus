@@ -1,4 +1,4 @@
 [workspace]
-members = ["crates/dtoa", "crates/stackful", "crates/data-structure"]
+members = ["crates/dtoa", "crates/stackful", "crates/data-structure", "crates/big-int"]
 
 resolver = "2"
