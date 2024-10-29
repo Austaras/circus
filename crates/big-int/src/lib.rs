@@ -73,8 +73,19 @@ impl BigInt {
             self.data[idx + offset] = res;
         }
 
-        if carry {
-            self.data.push(1)
+        let mut idx = rhs.data.len() + offset;
+
+        while carry {
+            if self.data.len() == idx {
+                self.data.push(1);
+                carry = false
+            } else {
+                let (res, next_carry) = self.data[idx].carrying_add(0, carry);
+
+                self.data[idx] = res;
+                carry = next_carry;
+                idx += 1;
+            }
         }
     }
 
@@ -231,10 +242,12 @@ impl BigInt {
                 (false, false) => res2.clone() - &res3,
             };
 
+            let res = res / 2;
+
             if sign {
-                rinf - &res
+                rinf * 2 - &res
             } else {
-                (false, rinf + &res)
+                (false, rinf * 2 + &res)
             }
         };
         (res2_sign, res2) = {
@@ -547,5 +560,33 @@ mod tests {
         a.toom3_mul(&b);
 
         a_clone.naive_mul(&b);
+
+        assert_eq!(a, a_clone);
+    }
+
+    #[test]
+    fn took3_long() {
+        let mut a = BigInt::try_from("12345678901234567890121234567890123456789012").unwrap();
+        let mut a_clone = a.clone();
+        let b = BigInt::try_from("987654321987654321098987654321987654321098").unwrap();
+
+        a.toom3_mul(&b);
+
+        a_clone.naive_mul(&b);
+
+        assert_eq!(a, a_clone);
+    }
+
+    #[test]
+    fn took3_very_long() {
+        let mut a = BigInt::try_from("2372138972189327198373478927894543278954678564378564738564378567843657843657843657843657436543785647385674385674836543658743658473665784376856437856438568743123821093289089089090890890213980795843").unwrap();
+        let mut a_clone = a.clone();
+        let b = BigInt::try_from("3749832749823748932743289432789473289478932748932743289473289473289473289473298473294732984732987498237493278947329847329483289473249873289437289473249832792749239843298432987").unwrap();
+
+        a.toom3_mul(&b);
+
+        a_clone.naive_mul(&b);
+
+        assert_eq!(a, a_clone);
     }
 }
