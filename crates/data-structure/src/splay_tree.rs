@@ -58,12 +58,16 @@ impl<T: Eq + Ord> SplayTree<T> {
     }
 
     pub fn delete(&mut self, data: &T) -> Option<T> {
-        None
+        if let Some(node) = &mut self.node {
+            node.delete(data)
+        } else {
+            None
+        }
     }
 
     pub fn search(&self, data: &T) -> Option<()> {
         if let Some(node) = &self.node {
-            None
+            node.search(data)
         } else {
             None
         }
@@ -191,6 +195,30 @@ impl<T: Eq + Ord> Node<T> {
                     self.right = Some(Box::new(Node::new(data)));
 
                     (None, (None, Some(Right)))
+                }
+            }
+        }
+    }
+
+    fn delete(&self, data: &T) -> Option<T> {
+        None
+    }
+
+    fn search(&self, data: &T) -> Option<()> {
+        match self.data.cmp(data) {
+            Ordering::Equal => Some(()),
+            Ordering::Greater => {
+                if let Some(left) = &self.left {
+                    left.search(data)
+                } else {
+                    None
+                }
+            }
+            Ordering::Less => {
+                if let Some(right) = &self.right {
+                    right.search(data)
+                } else {
+                    None
                 }
             }
         }

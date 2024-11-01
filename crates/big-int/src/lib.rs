@@ -286,7 +286,192 @@ impl BigInt {
         *self = res;
     }
 
-    fn fft_mul(&mut self, rhs: &Self) {}
+    fn fft_mul(&mut self, rhs: &Self) {
+        #[derive(Clone, Copy)]
+        struct Complex {
+            re: f64,
+            im: f64,
+        }
+
+        impl Add<Self> for Complex {
+            type Output = Self;
+
+            fn add(self, rhs: Self) -> Self::Output {
+                Self {
+                    re: self.re + rhs.re,
+                    im: self.im + rhs.im,
+                }
+            }
+        }
+
+        impl Sub<Self> for Complex {
+            type Output = Self;
+
+            fn sub(self, rhs: Self) -> Self::Output {
+                Self {
+                    re: self.re - rhs.re,
+                    im: self.im - rhs.im,
+                }
+            }
+        }
+
+        impl Mul<Self> for Complex {
+            type Output = Self;
+
+            fn mul(self, rhs: Self) -> Self::Output {
+                Self {
+                    re: self.re * rhs.re - self.im * rhs.im,
+                    im: self.im * rhs.re + self.re * rhs.im,
+                }
+            }
+        }
+
+        fn sort(data: &mut [Complex]) {
+            let len = data.len();
+
+            let mut step = 4;
+
+            while step <= len {
+                for i in 0..len / step {
+                    for j in 0..step / 4 {
+                        let idx = i * step + j + step / 4;
+
+                        data.swap(idx, idx + step / 4);
+                    }
+                }
+
+                step *= 2
+            }
+        }
+        fn fft(data: &mut [Complex]) {
+            if data.len() == 2 {
+                let c0 = data[0];
+                let c1 = data[1];
+
+                data[0] = c0 + c1;
+                data[1] = c0 - c1;
+            } else {
+                sort(data);
+                let len = data.len();
+                fft(&mut data[..len / 2]);
+                fft(&mut data[len / 2..]);
+
+                for k in 0..len / 2 {
+                    let w = Complex {
+                        re: (-2.0 * std::f64::consts::PI * k as f64 / len as f64).cos(),
+                        im: (-2.0 * std::f64::consts::PI * k as f64 / len as f64).sin(),
+                    };
+                    let c0 = data[k];
+                    let c1 = data[k + len / 2];
+                    data[k] = c0 + w * c1;
+                    data[k + len / 2] = c0 - w * c1;
+                }
+            }
+        }
+
+        fn ifft(data: &mut [Complex]) {
+            if data.len() == 2 {
+                let c0 = data[0];
+                let c1 = data[1];
+
+                data[0] = c0 + c1;
+                data[1] = c0 - c1;
+            } else {
+                sort(data);
+                let len = data.len();
+                ifft(&mut data[..len / 2]);
+                ifft(&mut data[len / 2..]);
+
+                for k in 0..len / 2 {
+                    let w = Complex {
+                        re: (2.0 * std::f64::consts::PI * k as f64 / len as f64).cos(),
+                        im: (2.0 * std::f64::consts::PI * k as f64 / len as f64).sin(),
+                    };
+                    let c0 = data[k];
+                    let c1 = data[k + len / 2];
+                    data[k] = c0 + w * c1;
+                    data[k + len / 2] = c0 - w * c1;
+                }
+            }
+        }
+
+        let len = ((self.data.len() + rhs.data.len()) * 8).next_power_of_two();
+
+        let mut a_cmp = vec![Complex { re: 0.0, im: 0.0 }; len];
+        let mut b_cmp = vec![Complex { re: 0.0, im: 0.0 }; len];
+
+        for (i, data) in self.data.iter().enumerate() {
+            let mut data = *data;
+
+            for j in 0..8 {
+                a_cmp[i * 8 + j] = Complex {
+                    re: (data % 256) as f64,
+                    im: 0.0,
+                };
+                data = data / 256
+            }
+        }
+
+        for (i, data) in rhs.data.iter().enumerate() {
+            let mut data = *data;
+
+            for j in 0..8 {
+                b_cmp[i * 8 + j] = Complex {
+                    re: (data % 256) as f64,
+                    im: 0.0,
+                };
+                data = data / 256
+            }
+        }
+
+        fft(&mut a_cmp);
+        fft(&mut b_cmp);
+
+        for (idx, b) in b_cmp.into_iter().enumerate() {
+            a_cmp[idx] = a_cmp[idx] * b
+        }
+
+        ifft(&mut a_cmp);
+
+        let mut res_data = Self::new();
+
+        let mut carry = 0;
+
+        for cmp in a_cmp.chunks(8) {
+            let mut res: u64 = carry;
+            let mut base = 1;
+            let mut next_carry = 0;
+
+            for idx in 0..8 {
+                let cmp = cmp[idx];
+                let re = cmp.re / len as f64;
+                debug_assert!((re - re.round()).abs() < 1e-5);
+                let re = re.round() as u64;
+                debug_assert!(cmp.im.abs() < 1e-5);
+                let (re, carry) = re.widening_mul(base);
+                next_carry += carry;
+                let (res_data, res_carry) = res.carrying_add(re, false);
+
+                if res_carry {
+                    next_carry += 1
+                }
+
+                res = res_data;
+
+                if idx < 7 {
+                    base *= 256;
+                }
+            }
+
+            carry = next_carry;
+
+            res_data.data.push(res)
+        }
+
+        res_data.trim();
+
+        *self = res_data;
+    }
 }
 
 impl AddAssign<&Self> for BigInt {
@@ -584,6 +769,57 @@ mod tests {
         let b = BigInt::try_from("3749832749823748932743289432789473289478932748932743289473289473289473289473298473294732984732987498237493278947329847329483289473249873289437289473249832792749239843298432987").unwrap();
 
         a.toom3_mul(&b);
+
+        a_clone.naive_mul(&b);
+
+        assert_eq!(a, a_clone);
+    }
+
+    #[test]
+    fn fft() {
+        let mut a = BigInt::try_from("12312321312312321").unwrap();
+        let mut a_clone = a.clone();
+        let b = BigInt::try_from("7897878978789789").unwrap();
+
+        a.fft_mul(&b);
+        a_clone.naive_mul(&b);
+
+        assert_eq!(a, a_clone);
+    }
+
+    #[test]
+    fn fft_long() {
+        let mut a = BigInt::try_from("12345678901234567890121234567890123456789012").unwrap();
+        let mut a_clone = a.clone();
+        let b = BigInt::try_from("987654321987654321098987654321987654321098").unwrap();
+
+        a.fft_mul(&b);
+
+        a_clone.naive_mul(&b);
+
+        assert_eq!(a, a_clone);
+    }
+
+    #[test]
+    fn fft_very_long() {
+        let mut a = BigInt::try_from("2372138972189327198373478927894543278954678564378564738564378567843657843657843657843657436543785647385674385674836543658743658473665784376856437856438568743123821093289089089090890890213980795843").unwrap();
+        let mut a_clone = a.clone();
+        let b = BigInt::try_from("3749832749823748932743289432789473289478932748932743289473289473289473289473298473294732984732987498237493278947329847329483289473249873289437289473249832792749239843298432987").unwrap();
+
+        a.fft_mul(&b);
+
+        a_clone.naive_mul(&b);
+
+        assert_eq!(a, a_clone);
+    }
+
+    #[test]
+    fn fft_quite_long() {
+        let mut a = BigInt::try_from("23879213782187367845378876456783129783217657435456123673215362748731463217846347856479569472746335635263725136217463725467356743856794627958467856473895678436758642768215641254312312345677894974381986349746578467526423574521434251362173678684349569467523567846757542564567215342136472367988998678263726173267617456745674657386574354387564356512345676894723847821584675647825697456479356").unwrap();
+        let mut a_clone = a.clone();
+        let b = BigInt::try_from("9088945789457980243895463856483927849327543270543756856874654768904357890437508943785947389052789457804327905470824859067895482796789568754678321657321675312807943789543809547829057840923757854378924678547806782678321647863172478965984578947329858943275947235866852545273573214893057954398756621368731424681324632897980432780547908376543866748367834256776813768931").unwrap();
+
+        a.fft_mul(&b);
 
         a_clone.naive_mul(&b);
 
