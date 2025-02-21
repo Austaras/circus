@@ -147,7 +147,7 @@ impl<T: Eq + Ord> Node<T> {
 
                             if let Some(data) = data {
                                 let new_node = Node {
-                                    data: data,
+                                    data,
                                     left: Some(l),
                                     right: Some(r),
                                 };
