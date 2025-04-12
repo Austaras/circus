@@ -9,3 +9,5 @@ pub mod red_black_tree;
 pub mod splay_tree;
 
 pub mod b_tree;
+
+pub mod trie;
